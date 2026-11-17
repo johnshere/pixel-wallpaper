@@ -1,0 +1,7 @@
+# 像素背景（pixel-wallpaper）bundle patch
+#
+# 本插件是 HOST-PLANE：注册 /pixel-wallpaper/api 配置读写端点，并向客户端提供
+# 设置页与全窗底层像素格背景。必须落在宿主组合里（insert）。
+- insert:
+    - id: pixel-wallpaper
+      name: dsh-pixel-wallpaper

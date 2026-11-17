@@ -1,0 +1,37 @@
+{
+  "name": "dsh-pixel-wallpaper",
+  "version": "0.1.0",
+  "description": "像素背景：在 DSH Web 整窗底层铺一层算法实时生成的灰白像素格背景。",
+  "license": "MIT",
+  "main": "src/index.js",
+  "type": "commonjs",
+  "exports": {
+    ".": "./src/index.js",
+    "./client": "./client/bundle.js",
+    "./package.json": "./package.json"
+  },
+  "engines": {
+    "node": ">=22.5",
+    "dsh": ">=0.2.2-rc.3"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
+    }
+  },
+  "files": [
+    "src",
+    "client",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "node scripts/build-client.mjs",
+    "check": "node --check src/index.js && node --check client/bundle.js",
+    "test": "node --test \"test/*.test.mjs\""
+  }
+}
