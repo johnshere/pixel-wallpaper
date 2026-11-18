@@ -7,14 +7,16 @@
  *
  *   package.json      入口指向 lib/ 与 client/，不含 scripts / src
  *   cordis.patch.yml  宿主组合补丁
- *   lib/index.js      宿主侧插件（src/index.js + src/config.js 打成一个文件）
+ *   lib/index.js      宿主侧插件（src/*.js 合成一个 CJS 文件）
  *   client/bundle.js  客户端 bundle
  *   README.md / LICENSE
  *
- * 仓库里的 `client/bundle.js` 仍然生成一份，供测试直接加载纯函数。
+ * 另外会从 client/index.js 的注册表生成 `src/algorithm-schemas.js`：
+ * 服务端校验与设置页共用同一份参数定义，避免新增二级参数后保存被丢弃。
  */
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
-import { Script } from 'node:vm'
+import { readFileSync, existsSync } from 'node:fs'
+import { Script, runInNewContext } from 'node:vm'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -54,23 +56,84 @@ ${indent(clientSource)}
 })
 `
 
-/* ── 宿主：把 src/index.js 与 src/config.js 合成一个 CJS 模块 ──────────── */
+/* ── 从客户端注册表提取参数 schema，生成服务端共用的定义 ─────────────── */
 
-const hostIndex = await readFile(join(root, 'src/index.js'), 'utf8')
-const hostConfig = await readFile(join(root, 'src/config.js'), 'utf8')
+const fakeReact = {
+  createElement: () => null,
+  useState: (v) => [v, () => {}],
+  useEffect: () => {},
+  useRef: (v) => ({ current: v }),
+  Fragment: 'fragment',
+}
+const sandbox = {
+  require: (specifier) => (specifier === 'react' ? fakeReact : null),
+  module: { exports: {} },
+  exports: {},
+  window: {},
+  document: {},
+  screen: {},
+  performance: { now: () => 0 },
+  console,
+}
+runInNewContext(clientSource, sandbox, { filename: 'client/index.js' })
+
+const internals = sandbox.module.exports.__internals
+const schemas = {}
+for (const id of internals.algorithmIds()) schemas[id] = internals.algorithmOf(id).schema
+
+const generatedSchemas = `'use strict'
+
+/**
+ * 六支算法的参数 schema —— 由 scripts/build.mjs 从 client/index.js 生成，勿手改。
+ * 服务端 sanitize 与设置页共用同一份定义：新增/调整二级参数只改客户端注册表。
+ */
+
+module.exports = ${JSON.stringify(schemas, null, 2)}
+
+`
+await writeFile(join(root, 'src/algorithm-schemas.js'), generatedSchemas, 'utf8')
+
+/* ── 宿主：把 src/ 下的本地模块合成一个 CJS 文件 ─────────────────────── */
+
+function resolveLocal(fromFile, specifier) {
+  const base = join(dirname(fromFile), specifier)
+  for (const candidate of [base, `${base}.js`, join(base, 'index.js')]) {
+    if (existsSync(candidate)) return candidate
+  }
+  throw new Error(`[pixel-wallpaper] 找不到本地模块 ${specifier}（来自 ${fromFile}）`)
+}
+
+/** @returns {Map<string, {file:string, source:string}>} */
+function collectLocalModules(entryFile) {
+  const modules = new Map()
+  const visit = (file, id) => {
+    if (modules.has(id)) return
+    const source = readFileSync(file, 'utf8')
+    modules.set(id, { file, source })
+    for (const match of source.matchAll(/require\((['"])(\.[^'"]*)\1\)/g)) {
+      visit(resolveLocal(file, match[2]), match[2])
+    }
+  }
+  visit(entryFile, './index')
+  return modules
+}
+
+const hostModules = collectLocalModules(join(root, 'src/index.js'))
+const moduleDefs = [...hostModules]
+  .map(
+    ([id, mod]) => `__defs[${JSON.stringify(id)}] = function (module, exports, require) {
+${indent(mod.source)}
+}`,
+  )
+  .join('\n\n')
+
 const hostBundle = `${banner}
 'use strict'
 
 const __hostRequire = require
 const __defs = Object.create(null)
 
-__defs['./config'] = function (module, exports, require) {
-${indent(hostConfig)}
-}
-
-__defs['./index'] = function (module, exports, require) {
-${indent(hostIndex)}
-}
+${moduleDefs}
 
 function __require(id) {
   if (id.charAt(0) !== '.') return __hostRequire(id)

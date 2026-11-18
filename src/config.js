@@ -16,9 +16,6 @@ const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
 
-/** 可选的算法 id。 */
-const ALGORITHM_IDS = ['boids', 'flow', 'reaction', 'noise', 'waves', 'attractor']
-
 /** 可选的形状。 */
 const SHAPES = ['square', 'rounded', 'dot']
 
@@ -66,53 +63,15 @@ const LIMITS = Object.freeze({
   seed: [0, 999999]
 })
 
-/** 六支算法的参数 schema（设置页据此自动生成二级参数）。 */
-const ALGORITHM_SCHEMAS = Object.freeze({
-  boids: Object.freeze([
-    { key: 'agents', label: '智能体数量', type: 'range', min: 60, max: 600, step: 10, default: 280 },
-    { key: 'speed', label: '速度', type: 'range', min: 0.4, max: 2.4, step: 0.1, default: 1.2 },
-    { key: 'trail', label: '拖尾', type: 'range', min: 0.90, max: 0.995, step: 0.005, default: 0.98 }
-  ]),
-  flow: Object.freeze([
-    { key: 'particles', label: '粒子数量', type: 'range', min: 300, max: 3000, step: 100, default: 1200 },
-    { key: 'scale', label: '尺度', type: 'range', min: 0.6, max: 6, step: 0.1, default: 1.8 },
-    { key: 'trail', label: '拖尾', type: 'range', min: 0.90, max: 0.995, step: 0.005, default: 0.975 }
-  ]),
-  reaction: Object.freeze([
-    { key: 'feed', label: '补给率', type: 'range', min: 0.010, max: 0.080, step: 0.001, default: 0.0367 },
-    { key: 'kill', label: '消解率', type: 'range', min: 0.040, max: 0.070, step: 0.001, default: 0.0649 },
-    { key: 'steps', label: '步数', type: 'range', min: 1, max: 12, step: 1, default: 4 }
-  ]),
-  noise: Object.freeze([
-    { key: 'scale', label: '尺度', type: 'range', min: 0.6, max: 8, step: 0.1, default: 2.2 },
-    { key: 'octaves', label: '八度', type: 'range', min: 2, max: 6, step: 1, default: 4 },
-    { key: 'warp', label: '扭曲', type: 'range', min: 0, max: 1, step: 0.05, default: 0.35 },
-    { key: 'drift', label: '漂移', type: 'range', min: 0, max: 1, step: 0.05, default: 0.15 }
-  ]),
-  waves: Object.freeze([
-    { key: 'sources', label: '波源数', type: 'range', min: 2, max: 12, step: 1, default: 5 },
-    { key: 'freq', label: '频率', type: 'range', min: 0.5, max: 6, step: 0.1, default: 2.2 },
-    { key: 'speed', label: '速度', type: 'range', min: 0, max: 2, step: 0.1, default: 0.8 },
-    { key: 'decay', label: '衰减', type: 'range', min: 0, max: 1, step: 0.05, default: 0.3 }
-  ]),
-  attractor: Object.freeze([
-    {
-      key: 'type',
-      label: '吸引子类型',
-      type: 'select',
-      options: [
-        { value: 'Clifford', label: 'Clifford' },
-        { value: 'De Jong', label: 'De Jong' }
-      ],
-      default: 'Clifford'
-    },
-    { key: 'a', label: '参数 a', type: 'range', min: -3, max: 3, step: 0.1, default: -1.4 },
-    { key: 'b', label: '参数 b', type: 'range', min: -3, max: 3, step: 0.1, default: 1.6 },
-    { key: 'c', label: '参数 c', type: 'range', min: -3, max: 3, step: 0.1, default: 1.0 },
-    { key: 'd', label: '参数 d', type: 'range', min: -3, max: 3, step: 0.1, default: 0.7 },
-    { key: 'points', label: '点数', type: 'range', min: 500, max: 6000, step: 100, default: 2500 }
-  ])
-})
+/**
+ * 六支算法的参数 schema（设置页据此自动生成二级参数）。
+ * 由 scripts/build.mjs 从 client/index.js 的注册表生成，服务端只读这份，
+ * 保证「设置页能改」与「服务端允许保存」永远一致。
+ */
+const ALGORITHM_SCHEMAS = Object.freeze(require('./algorithm-schemas'))
+
+/** 合法算法 id 列表。 */
+const ALGORITHM_IDS = Object.freeze(Object.keys(ALGORITHM_SCHEMAS))
 
 /** 合法十六进制颜色（#rrggbb 或 #rgb）。 */
 const HEX_RE = /^#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})$/
