@@ -32,7 +32,7 @@ const GRID_MODES = ['auto', 'manual']
  * 默认配置（首次安装值，与 DESIGN.md §8 完全一致）。
  */
 const DEFAULT_CONFIG = Object.freeze({
-  version: 2,
+  version: 3,
   coverage: { header: true, left: true, right: true, input: false },
   grid: { mode: 'auto', cellWidth: null, gap: null },
   render: {
@@ -43,7 +43,8 @@ const DEFAULT_CONFIG = Object.freeze({
     black: 0,
     white: 100,
     dither: 'none',
-    background: '#141414'
+    background: '#141414',
+    transparency: 80
   },
   animation: { playing: true, speed: 1 },
   algorithm: { id: 'boids', seed: 1337, params: {} }
@@ -60,6 +61,7 @@ const LIMITS = Object.freeze({
   gamma: [0.4, 2.0],
   black: [0, 30],
   white: [70, 100],
+  transparency: [0, 100],
   speed: [0.25, 2],
   seed: [0, 999999]
 })
@@ -263,7 +265,8 @@ function sanitizeRender(value) {
     black,
     white,
     dither,
-    background: normalizeHex(src.background) || def.background
+    background: normalizeHex(src.background) || def.background,
+    transparency: clampNumber(src.transparency, 'transparency', def.transparency, true)
   }
 }
 
@@ -291,7 +294,7 @@ function sanitize(input) {
     render.background = DEFAULT_CONFIG.render.background
   }
   return {
-    version: 2,
+    version: 3,
     coverage: sanitizeCoverage(src.coverage),
     grid: sanitizeGrid(src.grid),
     render,

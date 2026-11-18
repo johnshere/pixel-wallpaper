@@ -22,13 +22,14 @@ test('默认配置与 DESIGN.md §8 一致', () => {
   assert.equal(c.grid.mode, 'auto')
   assert.equal(c.render.levels, 8)
   assert.deepEqual(c.render.palette, ['#1b1b1b', '#c9c9c9'])
+  assert.equal(c.render.transparency, 80)
   assert.equal(c.coverage.input, false)
   assert.equal(c.algorithm.id, 'boids')
 })
 
 test('sanitize：非法值 clamp、未知键丢弃、颜色归一化', () => {
   const c = config.sanitize({
-    render: { levels: 99, gamma: -1, background: '#ABC', palette: ['#fff', 'nope', '#000'], shape: 'weird' },
+    render: { levels: 99, gamma: -1, background: '#ABC', palette: ['#fff', 'nope', '#000'], shape: 'weird', transparency: 999 },
     grid: { mode: 'manual', cellWidth: 999, gap: -5 },
     algorithm: { id: 'nope', seed: -3, params: { agents: 99999, bad: 1 } },
     junk: true
@@ -38,6 +39,7 @@ test('sanitize：非法值 clamp、未知键丢弃、颜色归一化', () => {
   assert.equal(c.render.background, '#aabbcc')
   assert.deepEqual(c.render.palette, ['#ffffff', '#000000'])
   assert.equal(c.render.shape, 'square')
+  assert.equal(c.render.transparency, 100)
   assert.equal(c.grid.cellWidth, 40)
   assert.equal(c.grid.gap, 0)
   assert.equal(c.algorithm.id, 'boids')

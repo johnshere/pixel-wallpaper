@@ -163,6 +163,7 @@ color = paletteAt(level / (levels - 1))
 
 - **调色板**：一组由暗到亮的色标（2–8 个十六进制颜色），默认 `["#1b1b1b", "#c9c9c9"]`；按段线性插值取色（sRGB 空间）。`levels` 与色标数量无关。
 - **形状**：方形（`fillRect`）／圆角（半径 = 边长 × 28%）／圆点（`arc`）。
+- **透明度**：`render.transparency`（0–100，默认 80）；格子颜色朝底色混合 `k = 1 - t/100`，视觉等同整层 20% 不透明，画布本身仍不透明。
 - **缝**：不画，直接露出 canvas 底色；底色默认 `#141414`，可配。
 - **抖动**：Bayer 4×4 用 `(bayer/16 - 0.5) / levels` 作偏移；误差扩散用 Floyd–Steinberg，误差只在当前帧内传播。
 - 画布每帧先铺底色，再画格子；被「影响范围」关掉的矩形最后 `clearRect`（透明，露出宿主底层）。
@@ -200,7 +201,7 @@ create({ cols, rows, seed, params }) -> {
 
 ```json
 {
-  "version": 2,
+  "version": 3,
   "coverage": { "header": true, "left": true, "right": true, "input": false },
   "grid": { "mode": "auto", "cellWidth": null, "gap": null },
   "render": {
@@ -211,7 +212,8 @@ create({ cols, rows, seed, params }) -> {
     "black": 0,
     "white": 100,
     "dither": "none",
-    "background": "#141414"
+    "background": "#141414",
+    "transparency": 80
   },
   "animation": { "playing": true, "speed": 1 },
   "algorithm": { "id": "boids", "seed": 1337, "params": {} }
@@ -256,7 +258,9 @@ create({ cols, rows, seed, params }) -> {
 
 行为：
 
-- 通用配置：形状/层数/gamma/黑场/白场/抖动/色值/底色/种子；单元格宽/间隔（自动值旁「调整」，点击转手动）；算法下拉（每项「名称 — 描述」）在最上，二级参数按当前算法 schema 生成。
+- 分组：**插件通用配置**（网格、外观、色值/底色）在背景范围与 Tab 之间；算法 Tab 内只放算法下拉、播放/速度、种子、二级参数。
+- 插件通用：网格（单元格宽/间隔，自动值旁「调整」转手动、重置为自动）；外观（形状/层数/gamma/黑场/白场/抖动/透明度）；色值（调色板 + 底色）。
+- 算法 Tab：算法下拉（每项「名称 — 描述」）、播放/暂停、速度、种子、二级参数（按 schema 生成）。
 - 任何改动即时作用到画布（本地状态），300ms 防抖后 `PUT /pixel-wallpaper/api/config`；保存失败提示但不回滚画面。
 - 「影响范围」四个开关：开 = 背景延伸进该区域；关 = 该矩形不绘制（露出宿主底色）。默认顶栏/左栏/侧栏开，输入区关。
 - 单元格宽/间隔在自动模式下显示计算值并标「自动」；一旦手动编辑转手动模式并写盘。点「重置为自动」回到自动计算。

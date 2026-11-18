@@ -283,6 +283,25 @@ function shadeToRgb(v, render, col, row) {
   return paletteAt(render.palette, level / (render.levels - 1))
 }
 
+/**
+ * 把格子颜色按「透明度」朝底色混合：视觉等同整层 opacity，但画布仍不透明，
+ * 不会把宿主底色透出来，行为确定。
+ * @param {[number,number,number]} rgb 格子颜色。
+ * @param {[number,number,number]} bgRgb 底色。
+ * @param {number} transparency 0–100，越大越透。
+ * @returns {[number,number,number]} 混合后的颜色。
+ */
+function fadeToBackground(rgb, bgRgb, transparency) {
+  const t = clamp(Number(transparency) || 0, 0, 100) / 100
+  if (t <= 0) return rgb
+  const k = 1 - t
+  return [
+    Math.round(bgRgb[0] + (rgb[0] - bgRgb[0]) * k),
+    Math.round(bgRgb[1] + (rgb[1] - bgRgb[1]) * k),
+    Math.round(bgRgb[2] + (rgb[2] - bgRgb[2]) * k)
+  ]
+}
+
 /* ────────────────────────────────────────────────────────────────────────
  * 算法注册表（DESIGN.md §7）
  * ──────────────────────────────────────────────────────────────────────── */
@@ -945,6 +964,7 @@ function createRenderer(canvas, config, onGrid) {
     const render = cfg.render
     // 画布不透明时先铺底色；透明化后直接画格子
     const cx = ctx2d
+    const bgRgb = hexToRgb(render.background)
     cx.clearRect(0, 0, grid.Wdev, grid.Hdev)
     cx.fillStyle = render.background
     cx.fillRect(0, 0, grid.Wdev, grid.Hdev)
@@ -987,6 +1007,7 @@ function createRenderer(canvas, config, onGrid) {
         } else {
           rgb = shadeToRgb(v, render, cIdx, r)
         }
+        rgb = fadeToBackground(rgb, bgRgb, render.transparency)
         cx.fillStyle = `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`
         drawShape(cx, x, y, wdt, hgt, render.shape)
       }
@@ -1325,6 +1346,7 @@ const UI_CSS = `
 .pw-title{font-size:14px;font-weight:600;color:var(--dsw-alias-label-primary,#e8e8e8)}
 .pw-desc{font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary,#999)}
 .pw-group{display:flex;flex-direction:column;gap:6px}
+.pw-general{display:flex;flex-direction:column;gap:12px}
 .pw-group-label{font-size:12px;color:var(--dsw-alias-label-secondary,#aaa)}
 .pw-coverage-row{display:flex;flex-direction:row;flex-wrap:nowrap;align-items:center;gap:16px}
 .pw-coverage-row .pw-row{flex:0 0 auto}
@@ -1488,67 +1510,9 @@ function SettingsSection() {
     patch((p) => ({ ...p, grid: { mode: 'manual', cellWidth, gap } }))
   }
 
-  /** 通用参数区。 */
-  const renderParamControls = h('div', { className: 'pw-group' },
-    h('div', { className: 'pw-group-label' }, '通用配置'),
-    h(SelectField, {
-      label: '形状',
-      value: render.shape,
-      options: [{ value: 'square', label: '方形' }, { value: 'rounded', label: '圆角' }, { value: 'dot', label: '圆点' }],
-      onChange: (v) => patch((p) => ({ ...p, render: { ...p.render, shape: v } }))
-    }),
-    h(NumberField, { label: '层数', value: render.levels, min: 2, max: 16, onChange: (v) => patch((p) => ({ ...p, render: { ...p.render, levels: v } })) }),
-    h(NumberField, { label: 'gamma', value: render.gamma, min: 0.4, max: 2, step: 0.1, onChange: (v) => patch((p) => ({ ...p, render: { ...p.render, gamma: v } })) }),
-    h(NumberField, { label: '黑场', value: render.black, min: 0, max: 30, onChange: (v) => patch((p) => ({ ...p, render: { ...p.render, black: v } })) }),
-    h(NumberField, { label: '白场', value: render.white, min: 70, max: 100, onChange: (v) => patch((p) => ({ ...p, render: { ...p.render, white: v } })) }),
-    h(SelectField, {
-      label: '抖动',
-      value: render.dither,
-      options: [{ value: 'none', label: '无' }, { value: 'bayer4', label: 'Bayer 4×4' }, { value: 'floyd', label: '误差扩散' }],
-      onChange: (v) => patch((p) => ({ ...p, render: { ...p.render, dither: v } }))
-    }),
-    h('div', { className: 'pw-group' },
-      h('div', { className: 'pw-group-label' }, '色值'),
-      h('div', { className: 'pw-palette' },
-        (render.palette || []).map((color, index) => h('input', {
-          key: `${index}-${color}`,
-          type: 'color',
-          className: 'pw-swatch',
-          title: `色标 ${index + 1}`,
-          value: color,
-          onChange: (e) => {
-            const next = (render.palette || []).slice()
-            next[index] = e.target.value
-            patch((p) => ({ ...p, render: { ...p.render, palette: next } }))
-          }
-        })),
-        h('button', {
-          className: 'pw-btn pw-btn-mini',
-          disabled: (render.palette || []).length >= 8,
-          onClick: () => patch((p) => ({ ...p, render: { ...p.render, palette: [...p.render.palette, '#808080'] } }))
-        }, '+'),
-        h('button', {
-          className: 'pw-btn pw-btn-mini',
-          disabled: (render.palette || []).length <= 2,
-          onClick: () => patch((p) => ({ ...p, render: { ...p.render, palette: p.render.palette.slice(0, -1) } }))
-        }, '−'),
-        h('button', {
-          className: 'pw-btn pw-btn-mini',
-          onClick: () => patch((p) => ({ ...p, render: { ...p.render, palette: ['#1b1b1b', '#c9c9c9'] } }))
-        }, '灰白')
-      )
-    ),
-    h('label', { className: 'pw-row' },
-      h('span', { className: 'pw-row-label' }, '底色'),
-      h('input', {
-        type: 'color',
-        className: 'pw-swatch',
-        value: render.background,
-        onChange: (e) => patch((p) => ({ ...p, render: { ...p.render, background: e.target.value } }))
-      })
-    ),
-    h(NumberField, { label: '种子', value: algo.seed, min: 0, max: 999999, step: 1, onChange: (v) => patch((p) => ({ ...p, algorithm: { ...p.algorithm, seed: Math.round(v) } })) }),
-    // 单元格宽 / 间隔（自动只读，改即转手动）
+  /** 网格（插件通用）：自动只读，点「调整」转手动。 */
+  const gridControls = h('div', { className: 'pw-group' },
+    h('div', { className: 'pw-group-label' }, '网格'),
     (grid.mode === 'auto'
       ? h('div', { className: 'pw-row' },
         h('span', { className: 'pw-row-label' }, '单元格宽（自动）'),
@@ -1565,6 +1529,84 @@ function SettingsSection() {
       h('button', { className: 'pw-btn', onClick: () => patch((p) => ({ ...p, grid: { mode: 'auto', cellWidth: null, gap: null } })) }, '重置为自动'),
       h('span', { className: 'pw-grid-stats' }, stats)
     )
+  )
+
+  /** 外观（插件通用）。 */
+  const appearanceControls = h('div', { className: 'pw-group' },
+    h('div', { className: 'pw-group-label' }, '外观'),
+    h(SelectField, {
+      label: '形状',
+      value: render.shape,
+      options: [{ value: 'square', label: '方形' }, { value: 'rounded', label: '圆角' }, { value: 'dot', label: '圆点' }],
+      onChange: (v) => patch((p) => ({ ...p, render: { ...p.render, shape: v } }))
+    }),
+    h(NumberField, { label: '层数', value: render.levels, min: 2, max: 16, onChange: (v) => patch((p) => ({ ...p, render: { ...p.render, levels: v } })) }),
+    h(NumberField, { label: 'gamma', value: render.gamma, min: 0.4, max: 2, step: 0.1, onChange: (v) => patch((p) => ({ ...p, render: { ...p.render, gamma: v } })) }),
+    h(NumberField, { label: '黑场', value: render.black, min: 0, max: 30, onChange: (v) => patch((p) => ({ ...p, render: { ...p.render, black: v } })) }),
+    h(NumberField, { label: '白场', value: render.white, min: 70, max: 100, onChange: (v) => patch((p) => ({ ...p, render: { ...p.render, white: v } })) }),
+    h(SelectField, {
+      label: '抖动',
+      value: render.dither,
+      options: [{ value: 'none', label: '无' }, { value: 'bayer4', label: 'Bayer 4×4' }, { value: 'floyd', label: '误差扩散' }],
+      onChange: (v) => patch((p) => ({ ...p, render: { ...p.render, dither: v } }))
+    }),
+    h(NumberField, {
+      label: '透明度（%）',
+      value: render.transparency,
+      min: 0,
+      max: 100,
+      step: 5,
+      onChange: (v) => patch((p) => ({ ...p, render: { ...p.render, transparency: Math.round(v) } }))
+    })
+  )
+
+  /** 色值与底色（插件通用）。 */
+  const paletteControls = h('div', { className: 'pw-group' },
+    h('div', { className: 'pw-group-label' }, '色值'),
+    h('div', { className: 'pw-palette' },
+      (render.palette || []).map((color, index) => h('input', {
+        key: `${index}-${color}`,
+        type: 'color',
+        className: 'pw-swatch',
+        title: `色标 ${index + 1}`,
+        value: color,
+        onChange: (e) => {
+          const next = (render.palette || []).slice()
+          next[index] = e.target.value
+          patch((p) => ({ ...p, render: { ...p.render, palette: next } }))
+        }
+      })),
+      h('button', {
+        className: 'pw-btn pw-btn-mini',
+        disabled: (render.palette || []).length >= 8,
+        onClick: () => patch((p) => ({ ...p, render: { ...p.render, palette: [...p.render.palette, '#808080'] } }))
+      }, '+'),
+      h('button', {
+        className: 'pw-btn pw-btn-mini',
+        disabled: (render.palette || []).length <= 2,
+        onClick: () => patch((p) => ({ ...p, render: { ...p.render, palette: p.render.palette.slice(0, -1) } }))
+      }, '−'),
+      h('button', {
+        className: 'pw-btn pw-btn-mini',
+        onClick: () => patch((p) => ({ ...p, render: { ...p.render, palette: ['#1b1b1b', '#c9c9c9'] } }))
+      }, '灰白')
+    ),
+    h('label', { className: 'pw-row' },
+      h('span', { className: 'pw-row-label' }, '底色'),
+      h('input', {
+        type: 'color',
+        className: 'pw-swatch',
+        value: render.background,
+        onChange: (e) => patch((p) => ({ ...p, render: { ...p.render, background: e.target.value } }))
+      })
+    )
+  )
+
+  /** 插件通用配置：放在背景范围与 Tab 之间。 */
+  const generalControls = h('div', { className: 'pw-general' },
+    gridControls,
+    appearanceControls,
+    paletteControls
   )
 
   /** 二级参数（按当前算法 schema）。 */
@@ -1591,6 +1633,16 @@ function SettingsSection() {
       })
     })
   )
+
+  /** 种子（算法级）。 */
+  const seedControl = h(NumberField, {
+    label: '种子',
+    value: algo.seed,
+    min: 0,
+    max: 999999,
+    step: 1,
+    onChange: (v) => patch((p) => ({ ...p, algorithm: { ...p.algorithm, seed: Math.round(v) } }))
+  })
 
   /** 算法下拉：每个选项 = 名称 + 一句说明。 */
   const algorithmSelect = h('div', { className: 'pw-group' },
@@ -1641,17 +1693,19 @@ function SettingsSection() {
     // 影响范围
     coverageControls,
     h('div', { className: 'pw-divid' }),
-    // tab
+    // 插件通用配置：网格、外观、色值
+    generalControls,
+    h('div', { className: 'pw-divid' }),
+    // tab：算法 / 图片
     h('div', { className: 'pw-tabs' },
       h('div', { className: `pw-tab${tab === 'algorithm' ? ' pw-tab-active' : ''}`, onClick: () => setTab('algorithm') }, '算法'),
       h('div', { className: `pw-tab${tab === 'image' ? ' pw-tab-active' : ''}`, onClick: () => setTab('image') }, '图片')
     ),
     tab === 'algorithm'
       ? h('div', { className: 'pw-section' },
-        renderParamControls,
-        playControls,
-        h('div', { className: 'pw-divid' }),
         algorithmSelect,
+        playControls,
+        seedControl,
         schemaControls
       )
       : imageTab,
@@ -1711,10 +1765,10 @@ function startRenderer(ctx) {
   }
 
   const initialConfig = {
-    version: 2,
+    version: 3,
     coverage: { header: true, left: true, right: true, input: false },
     grid: { mode: 'auto', cellWidth: null, gap: null },
-    render: { shape: 'square', levels: 8, palette: ['#1b1b1b', '#c9c9c9'], gamma: 1.0, black: 0, white: 100, dither: 'none', background: '#141414' },
+    render: { shape: 'square', levels: 8, palette: ['#1b1b1b', '#c9c9c9'], gamma: 1.0, black: 0, white: 100, dither: 'none', background: '#141414', transparency: 80 },
     animation: { playing: true, speed: 1 },
     algorithm: { id: 'boids', seed: 1337, params: {} }
   }
@@ -1730,6 +1784,7 @@ function startRenderer(ctx) {
   const renderer = createRenderer(canvas, initialConfig, onGrid)
   runtime.renderer = renderer
   trackConfig(renderer)
+  const teardown = []
 
   // 影响范围：测量开销大，缓存矩形，只在启动 / resize / DOM 变化时刷新。
   let cachedRects = { header: null, left: null, right: null, input: null }
@@ -1765,6 +1820,7 @@ function startRenderer(ctx) {
   }
   if (typeof window !== 'undefined') {
     window.addEventListener(CONFIG_EVENT, onConfig)
+    teardown.push(() => window.removeEventListener(CONFIG_EVENT, onConfig))
   }
 
   // 启动时 GET 一次配置
@@ -1774,7 +1830,7 @@ function startRenderer(ctx) {
 
   // 可见性变化：隐藏暂停，恢复继续（保留最后一帧）
   if (typeof document !== 'undefined') {
-    document.addEventListener('visibilitychange', () => {
+    const onVisibility = () => {
       try {
         if (document.hidden) {
           renderer.playPause(false)
@@ -1785,7 +1841,9 @@ function startRenderer(ctx) {
       } catch {
         // 暂停/恢复失败：忽略
       }
-    })
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    teardown.push(() => document.removeEventListener('visibilitychange', onVisibility))
   }
 
   // 区域测量：resize/DOM 变化时防抖重测；防抖保证最后一次变化一定被测量，
@@ -1793,17 +1851,31 @@ function startRenderer(ctx) {
   const scheduleMeasure = debounce(refreshRegions, 300)
   if (typeof window !== 'undefined') {
     window.addEventListener('resize', scheduleMeasure)
+    teardown.push(() => window.removeEventListener('resize', scheduleMeasure))
   }
   if (typeof document !== 'undefined' && typeof MutationObserver !== 'undefined') {
     const observer = new MutationObserver(scheduleMeasure)
     observer.observe(document.body, { childList: true, subtree: true })
     runtime.observer = observer
+    teardown.push(() => observer.disconnect())
   }
   // 页面刚加载时 composer 往往晚于插件挂载：补测一次。
-  setTimeout(refreshRegions, 1200)
+  const lateMeasure = setTimeout(refreshRegions, 1200)
+  teardown.push(() => clearTimeout(lateMeasure))
 
   // ResizeObserver 观察 documentElement；matchMedia 监听 DPR 变化
-  setupResizeHandlers(renderer, initialConfig)
+  const disposeResize = setupResizeHandlers(renderer, initialConfig)
+  if (disposeResize) teardown.push(disposeResize)
+
+  // 插件被禁用/卸载时，把画布、监听器与动画帧全部撤掉，恢复宿主默认背景。
+  return () => {
+    for (const fn of teardown) {
+      try { fn() } catch { /* 单个清理失败继续 */ }
+    }
+    try { renderer.destroy() } catch { /* 忽略 */ }
+    try { if (canvas.parentNode) canvas.parentNode.removeChild(canvas) } catch { /* 忽略 */ }
+    runtime.renderer = null
+  }
 }
 
 /** 当前生效配置（供可见性切换使用）。 */
@@ -1822,18 +1894,20 @@ function trackConfig(renderer) {
  * 监听 resize / dpr 变化，触发整组重算（自动）或保留手动参数重算（手动）。
  */
 function setupResizeHandlers(renderer, seedConfig) {
-  if (typeof window === 'undefined' || typeof document === 'undefined') return
-  let lastMode = seedConfig.grid && seedConfig.grid.mode
+  if (typeof window === 'undefined' || typeof document === 'undefined') return null
+  let ro = null
+  let mq = null
+  let handler = null
   try {
-    const ro = new ResizeObserver(debounce(() => {
+    ro = new ResizeObserver(debounce(() => {
       if (rendererConfig) renderer.updateConfig(rendererConfig)
     }, 300))
     ro.observe(document.documentElement)
 
     // matchMedia 监听跨屏 DPR
     if (typeof window.matchMedia === 'function') {
-      const mq = window.matchMedia('(resolution: 1dppx)')
-      const handler = () => {
+      mq = window.matchMedia('(resolution: 1dppx)')
+      handler = () => {
         if (rendererConfig) renderer.updateConfig(rendererConfig)
       }
       if (mq.addEventListener) mq.addEventListener('change', handler)
@@ -1841,6 +1915,15 @@ function setupResizeHandlers(renderer, seedConfig) {
     }
   } catch {
     // 观察失败：不阻塞背景
+  }
+  return () => {
+    try { if (ro) ro.disconnect() } catch { /* 忽略 */ }
+    try {
+      if (mq && handler) {
+        if (mq.removeEventListener) mq.removeEventListener('change', handler)
+        else if (mq.removeListener) mq.removeListener(handler)
+      }
+    } catch { /* 忽略 */ }
   }
 }
 
@@ -1850,10 +1933,22 @@ function setupResizeHandlers(renderer, seedConfig) {
  */
 function apply(ctx) {
   try {
-    if (typeof document !== 'undefined') {
+    // 背景层用 ctx.effect 托管：插件被禁用/卸载时 DSH 会调用返回的清理函数，
+    // 画布、样式、监听器一起撤销，不留下「关了还在生效」的孤儿层。
+    const startBackground = () => {
+      if (typeof document === 'undefined') return () => {}
       ensureStyle(STYLE_ID).textContent = BASE_CSS + UI_CSS
-      startRenderer(ctx)
+      const disposeRenderer = startRenderer(ctx)
+      return () => {
+        try { if (disposeRenderer) disposeRenderer() } catch { /* 忽略 */ }
+        try {
+          const style = document.getElementById(STYLE_ID)
+          if (style && style.parentNode) style.parentNode.removeChild(style)
+        } catch { /* 忽略 */ }
+      }
     }
+    if (typeof ctx.effect === 'function') ctx.effect(startBackground, `${PLUGIN_ID}: background layer`)
+    else startBackground()
     registerSettings(ctx)
   } catch (error) {
     // 任何失败只丢背景，不白屏
@@ -1872,6 +1967,7 @@ module.exports = {
     computePositions,
     paletteAt,
     shadeToRgb,
+    fadeToBackground,
     hexToRgb,
     clamp,
     registerAlgorithm,
