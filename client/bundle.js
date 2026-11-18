@@ -967,20 +967,6 @@ window.__ModuleLoader__.load({
         return inst
       }
 
-      /** 最近邻重采样旧场到新尺寸；失败返回 null（触发重播种）。 */
-      function resampleField(old, oCols, oRows, nCols, nRows) {
-        if (!old || oCols === 0 || oRows === 0 || (oCols === nCols && oRows === nRows)) return old
-        const out = new Float32Array(nCols * nRows)
-        for (let y = 0; y < nRows; y++) {
-          const sy = Math.min(oRows - 1, Math.floor(y * oRows / nRows))
-          for (let x = 0; x < nCols; x++) {
-            const sx = Math.min(oCols - 1, Math.floor(x * oCols / nCols))
-            out[y * nCols + x] = old[sy * oCols + sx]
-          }
-        }
-        return out
-      }
-
       /** 渲染一帧。 */
       function draw() {
         if (destroyed || !grid || !algorithm || !algorithm.field) return
@@ -1179,25 +1165,11 @@ window.__ModuleLoader__.load({
           (grid.mode === 'manual' && (g.cell !== grid.cell || g.gx !== grid.gx || g.gy !== grid.gy))
 
         if (gridChanged) {
-          // 重采样（保留旧场），除非算法/种子变化要重播种
-          if (algChanged) {
-            grid = g
-            sizeCanvas(g)
-            algorithm = makeAlgorithm(g)
-          } else {
-            const oldField = algorithm ? algorithm.field : null
-            const oCols = grid ? grid.cols : 0
-            const oRows = grid ? grid.rows : 0
-            grid = g
-            sizeCanvas(g)
-            const resampled = resampleField(oldField, oCols, oRows, g.cols, g.rows)
-            if (resampled) {
-              algorithm = makeAlgorithm(g)
-              algorithm.field = resampled
-            } else {
-              algorithm = makeAlgorithm(g)
-            }
-          }
+          // 网格尺寸变了必须重建实例：亮场是算法实例内部的数组，只替换 instance.field
+          // 只会让绘制读到一张静止快照（算法仍写旧数组），画面就永远不再更新。
+          grid = g
+          sizeCanvas(g)
+          algorithm = makeAlgorithm(g)
           if (onGrid) {
             const dpr = g.dpr
             onGrid({
