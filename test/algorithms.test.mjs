@@ -48,3 +48,24 @@ test('噪声场：换种子会换图案', () => {
   for (let i = 0; i < a.field.length; i++) diff += Math.abs(a.field[i] - b.field[i])
   assert.ok(diff > 1, `不同种子的噪声场应明显不同（差值 ${diff}）`)
 })
+
+test('鸟群：默认 150 只，三个规则权重都可由二级参数覆盖', () => {
+  const def = algorithmOf('boids')
+  const byKey = new Map(def.schema.map((f) => [f.key, f]))
+  assert.equal(byKey.get('agents').default, 150)
+  for (const key of ['separation', 'alignment', 'cohesion']) {
+    assert.ok(byKey.has(key), `schema 应包含 ${key}`)
+  }
+  assert.equal(byKey.get('separation').default, 1.6)
+  assert.equal(byKey.get('alignment').default, 0.9)
+  assert.equal(byKey.get('cohesion').default, 0.7)
+})
+
+test('算法实例签名：二级参数改动视为需要重启（重置）', () => {
+  const { algorithmSignature } = bundle.__internals
+  const base = { id: 'boids', seed: 1, params: { agents: 150, cohesion: 0.7 } }
+  assert.equal(algorithmSignature(base), algorithmSignature({ ...base, params: { agents: 150, cohesion: 0.7 } }))
+  assert.notEqual(algorithmSignature(base), algorithmSignature({ ...base, params: { agents: 150, cohesion: 1.2 } }))
+  assert.notEqual(algorithmSignature(base), algorithmSignature({ ...base, seed: 2 }))
+  assert.notEqual(algorithmSignature(base), algorithmSignature({ ...base, id: 'flow' }))
+})

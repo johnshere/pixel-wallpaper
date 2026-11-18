@@ -372,7 +372,10 @@ registerAlgorithm({
   label: '鸟群',
   desc: '分离/对齐/聚合的智能体，拖尾留下纹理。',
   schema: [
-    { key: 'agents', label: '智能体数量', type: 'range', min: 60, max: 600, step: 10, default: 280 },
+    { key: 'agents', label: '智能体数量', type: 'range', min: 60, max: 600, step: 10, default: 150 },
+    { key: 'separation', label: '分离权重', type: 'range', min: 0, max: 4, step: 0.1, default: 1.6 },
+    { key: 'alignment', label: '对齐权重', type: 'range', min: 0, max: 2, step: 0.05, default: 0.9 },
+    { key: 'cohesion', label: '聚合权重', type: 'range', min: 0, max: 3, step: 0.1, default: 0.7 },
     { key: 'speed', label: '速度', type: 'range', min: 0.4, max: 2.4, step: 0.1, default: 1.2 },
     { key: 'trail', label: '拖尾', type: 'range', min: 0.9, max: 0.995, step: 0.005, default: 0.98 }
   ],
@@ -382,7 +385,7 @@ registerAlgorithm({
 /** 鸟群算法：分离/对齐/聚合 + 环形边界 + 空间哈希。 */
 function createBoids({ cols, rows, seed, params }) {
   const rand = mulberry32(seed)
-  const p = Object.assign({ agents: 280, speed: 1.2, trail: 0.98 }, params)
+  const p = Object.assign({ agents: 150, speed: 1.2, trail: 0.98, separation: 1.6, alignment: 0.9, cohesion: 0.7 }, params)
   const field = new Float32Array(cols * rows)
   const N = Math.round(p.agents)
   const pos = new Float32Array(N * 2)
@@ -485,9 +488,9 @@ function createBoids({ cols, rows, seed, params }) {
       }
       let vx = vel[i * 2]
       let vy = vel[i * 2 + 1]
-      // 分离 1.6 / 对齐 0.9 / 聚合 0.7
-      vx += sx * 1.6 + (ax - ix) * 0.7
-      vy += sy * 1.6 + (ay - iy) * 0.7
+      // 三个权重可由二级参数覆盖：分离 / 聚合（对齐在下面单独计算）
+      vx += sx * p.separation + (ax - ix) * p.cohesion
+      vy += sy * p.separation + (ay - iy) * p.cohesion
       // 对齐：向邻域平均速度靠拢
       let avgVX = 0
       let avgVY = 0
@@ -500,8 +503,8 @@ function createBoids({ cols, rows, seed, params }) {
       if (vcnt > 0) {
         avgVX /= vcnt
         avgVY /= vcnt
-        vx += (avgVX - vx) * 0.9
-        vy += (avgVY - vy) * 0.9
+        vx += (avgVX - vx) * p.alignment
+        vy += (avgVY - vy) * p.alignment
       }
       const len = Math.sqrt(vx * vx + vy * vy) || 1
       const spd = p.speed
@@ -890,6 +893,17 @@ function createAttractor({ cols, rows, seed, params }) {
  * @param {(arg0: {cols:number, rows:number, cell:number, gx:number, gy:number, mode:string}) => void} onGrid 网格变化回调。
  * @returns {{updateConfig:(c:object)=>void, playPause:(p:boolean)=>void, destroy:()=>void}}
  */
+/**
+ * 算法实例签名：算法 id、种子、二级参数任一变化都要重建实例。
+ * 二级参数在 create 时读取，改动后必须重播种，效果等同于一次重置。
+ * @param {{id?:string,seed?:number,params?:object}|null|undefined} algorithm
+ * @returns {string}
+ */
+function algorithmSignature(algorithm) {
+  const a = algorithm || {}
+  return `${a.id || ''}|${a.seed == null ? '' : a.seed}|${JSON.stringify(a.params || {})}`
+}
+
 function createRenderer(canvas, config, onGrid) {
   let cfg = config
   let rafId = null
@@ -938,7 +952,7 @@ function createRenderer(canvas, config, onGrid) {
     canvas.style.height = '100%'
   }
 
-  /** 建一支算法实例（seed / 算法 id 变化才重建）。 */
+  /** 建一支算法实例（seed / 算法 id / 二级参数变化才重建）。 */
   function makeAlgorithm(g) {
     const def = algorithmOf(cfg.algorithm.id) || algorithmOf('boids')
     const inst = def.create({ cols: g.cols, rows: g.rows, seed: cfg.algorithm.seed, params: cfg.algorithm.params || {} })
@@ -1145,17 +1159,13 @@ function createRenderer(canvas, config, onGrid) {
   }
 
   function updateConfig(c) {
-    const prevAlgorithmId = cfg.algorithm && cfg.algorithm.id
-    const prevSeed = cfg.algorithm && cfg.algorithm.seed
-    const prevParams = JSON.stringify((cfg.algorithm && cfg.algorithm.params) || {})
+    const prevSignature = algorithmSignature(cfg.algorithm)
     const prevGrid = cfg.grid && cfg.grid.mode === 'manual' ? { w: cfg.grid.cellWidth, g: cfg.grid.gap } : 'auto'
 
     cfg = c
     playing = cfg.animation && cfg.animation.playing !== false
-    // 算法、种子或二级参数变化都要重建实例（参数在 create 时读取）。
-    const algChanged =
-      cfg.algorithm.id !== prevAlgorithmId || cfg.algorithm.seed !== prevSeed ||
-      JSON.stringify(cfg.algorithm.params || {}) !== prevParams
+    // 算法、种子或任一二级参数变化都重建实例：从种子重新播种，等同重置。
+    const algChanged = algorithmSignature(cfg.algorithm) !== prevSignature
 
     const g = computeGrid()
     const gridChanged =
@@ -2094,6 +2104,7 @@ module.exports = {
     algorithmIds,
     measureRegions,
     evenPalette,
+    algorithmSignature,
     createBoids,
     createFlow,
     createReaction,
