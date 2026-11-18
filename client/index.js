@@ -1074,10 +1074,15 @@ function createRenderer(canvas, config, onGrid) {
   function updateConfig(c) {
     const prevAlgorithmId = cfg.algorithm && cfg.algorithm.id
     const prevSeed = cfg.algorithm && cfg.algorithm.seed
+    const prevParams = JSON.stringify((cfg.algorithm && cfg.algorithm.params) || {})
     const prevGrid = cfg.grid && cfg.grid.mode === 'manual' ? { w: cfg.grid.cellWidth, g: cfg.grid.gap } : 'auto'
 
     cfg = c
     playing = cfg.animation && cfg.animation.playing !== false
+    // 算法、种子或二级参数变化都要重建实例（参数在 create 时读取）。
+    const algChanged =
+      cfg.algorithm.id !== prevAlgorithmId || cfg.algorithm.seed !== prevSeed ||
+      JSON.stringify(cfg.algorithm.params || {}) !== prevParams
 
     const g = computeGrid()
     const gridChanged =
@@ -1086,7 +1091,6 @@ function createRenderer(canvas, config, onGrid) {
 
     if (gridChanged) {
       // 重采样（保留旧场），除非算法/种子变化要重播种
-      const algChanged = cfg.algorithm.id !== prevAlgorithmId || cfg.algorithm.seed !== prevSeed
       if (algChanged) {
         grid = g
         sizeCanvas(g)
@@ -1116,6 +1120,10 @@ function createRenderer(canvas, config, onGrid) {
           mode: g.mode
         })
       }
+    } else if (algChanged) {
+      // 网格没变但算法/种子/参数变了：换实例并立刻重绘
+      algorithm = makeAlgorithm(grid)
+      dirty = true
     }
 
     draw()
@@ -1296,11 +1304,31 @@ function ensureStyle(id) {
  * HTTP 客户端
  * ──────────────────────────────────────────────────────────────────────── */
 
+/** 宿主可能是旧版本，返回的配置缺字段时用客户端默认值补齐。 */
+function withDefaults(raw) {
+  const src = raw || {}
+  const base = {
+    version: 3,
+    coverage: { header: true, left: true, right: true, input: false },
+    grid: { mode: 'auto', cellWidth: null, gap: null },
+    render: { shape: 'square', levels: 8, palette: ['#1b1b1b', '#c9c9c9'], gamma: 1.0, black: 0, white: 100, dither: 'none', background: '#141414', transparency: 90 },
+    animation: { playing: true, speed: 1 },
+    algorithm: { id: 'boids', seed: 1337, params: {} }
+  }
+  const out = { ...base, ...src }
+  for (const key of ['coverage', 'grid', 'render', 'animation']) {
+    out[key] = { ...base[key], ...(src[key] || {}) }
+  }
+  out.algorithm = { ...base.algorithm, ...(src.algorithm || {}) }
+  out.algorithm.params = { ...((src.algorithm && src.algorithm.params) || {}) }
+  return out
+}
+
 async function getConfig() {
   const res = await fetch(`${API}/config`, { credentials: 'same-origin', headers: { accept: 'application/json' } })
   if (!res.ok) throw new Error(`GET ${API}/config -> HTTP ${res.status}`)
   const data = await res.json()
-  return data.config
+  return withDefaults(data.config)
 }
 
 async function putConfig(config) {
@@ -1334,9 +1362,10 @@ function debounce(fn, wait) {
 /** 底层样式：画布与透明化。只在 apply 里写一次。 */
 const BASE_CSS = `
 html, body { background: transparent !important; }
-body, body[data-ds-dark-theme], body[data-ds-light-theme] {
+html body, html body[data-ds-dark-theme], html body[data-ds-light-theme] {
   --dsw-alias-bg-base: transparent !important;
   --dsw-specific-sidebar-fill: transparent !important;
+  --dsw-specific-bubble: transparent !important;
 }
 #${CANVAS_ID} { position: fixed; inset: 0; z-index: -1; pointer-events: none; width: 100%; height: 100%; }
 `
@@ -1346,6 +1375,7 @@ const UI_CSS = `
 .pw-title{font-size:14px;font-weight:600;color:var(--dsw-alias-label-primary,#e8e8e8)}
 .pw-desc{font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary,#999)}
 .pw-group{display:flex;flex-direction:column;gap:6px}
+.pw-fields{display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;align-items:center}
 .pw-general{display:flex;flex-direction:column;gap:12px}
 .pw-group-label{font-size:12px;color:var(--dsw-alias-label-secondary,#aaa)}
 .pw-coverage-row{display:flex;flex-direction:row;flex-wrap:nowrap;align-items:center;gap:16px}
@@ -1513,18 +1543,20 @@ function SettingsSection() {
   /** 网格（插件通用）：自动只读，点「调整」转手动。 */
   const gridControls = h('div', { className: 'pw-group' },
     h('div', { className: 'pw-group-label' }, '网格'),
-    (grid.mode === 'auto'
-      ? h('div', { className: 'pw-row' },
-        h('span', { className: 'pw-row-label' }, '单元格宽（自动）'),
-        h('span', { className: 'pw-hint' }, gridInfo ? `${gridInfo.cell}px` : '—'),
-        h('button', { className: 'pw-btn pw-btn-mini', disabled: !gridInfo, onClick: toManual }, '调整'))
-      : h(NumberField, { label: '单元格宽', value: grid.cellWidth, min: 2, max: 40, onChange: (v) => patch((p) => ({ ...p, grid: { ...p.grid, mode: 'manual', cellWidth: v } })) })),
-    (grid.mode === 'auto'
-      ? h('div', { className: 'pw-row' },
-        h('span', { className: 'pw-row-label' }, '间隔（自动）'),
-        h('span', { className: 'pw-hint' }, gridInfo ? `${gridInfo.gx}px` : '—'),
-        h('button', { className: 'pw-btn pw-btn-mini', disabled: !gridInfo, onClick: toManual }, '调整'))
-      : h(NumberField, { label: '间隔', value: grid.gap, min: 0, max: 20, onChange: (v) => patch((p) => ({ ...p, grid: { ...p.grid, mode: 'manual', gap: v } })) })),
+    h('div', { className: 'pw-fields' },
+      (grid.mode === 'auto'
+        ? h('div', { className: 'pw-row' },
+          h('span', { className: 'pw-row-label' }, '单元格宽（自动）'),
+          h('span', { className: 'pw-hint' }, gridInfo ? `${gridInfo.cell}px` : '—'),
+          h('button', { className: 'pw-btn pw-btn-mini', disabled: !gridInfo, onClick: toManual }, '调整'))
+        : h(NumberField, { label: '单元格宽', value: grid.cellWidth, min: 2, max: 40, onChange: (v) => patch((p) => ({ ...p, grid: { ...p.grid, mode: 'manual', cellWidth: v } })) })),
+      (grid.mode === 'auto'
+        ? h('div', { className: 'pw-row' },
+          h('span', { className: 'pw-row-label' }, '间隔（自动）'),
+          h('span', { className: 'pw-hint' }, gridInfo ? `${gridInfo.gx}px` : '—'),
+          h('button', { className: 'pw-btn pw-btn-mini', disabled: !gridInfo, onClick: toManual }, '调整'))
+        : h(NumberField, { label: '间隔', value: grid.gap, min: 0, max: 20, onChange: (v) => patch((p) => ({ ...p, grid: { ...p.grid, mode: 'manual', gap: v } })) }))
+    ),
     h('div', { className: 'pw-row' },
       h('button', { className: 'pw-btn', onClick: () => patch((p) => ({ ...p, grid: { mode: 'auto', cellWidth: null, gap: null } })) }, '重置为自动'),
       h('span', { className: 'pw-grid-stats' }, stats)
@@ -1534,30 +1566,32 @@ function SettingsSection() {
   /** 外观（插件通用）。 */
   const appearanceControls = h('div', { className: 'pw-group' },
     h('div', { className: 'pw-group-label' }, '外观'),
-    h(SelectField, {
-      label: '形状',
-      value: render.shape,
-      options: [{ value: 'square', label: '方形' }, { value: 'rounded', label: '圆角' }, { value: 'dot', label: '圆点' }],
-      onChange: (v) => patch((p) => ({ ...p, render: { ...p.render, shape: v } }))
-    }),
-    h(NumberField, { label: '层数', value: render.levels, min: 2, max: 16, onChange: (v) => patch((p) => ({ ...p, render: { ...p.render, levels: v } })) }),
-    h(NumberField, { label: 'gamma', value: render.gamma, min: 0.4, max: 2, step: 0.1, onChange: (v) => patch((p) => ({ ...p, render: { ...p.render, gamma: v } })) }),
-    h(NumberField, { label: '黑场', value: render.black, min: 0, max: 30, onChange: (v) => patch((p) => ({ ...p, render: { ...p.render, black: v } })) }),
-    h(NumberField, { label: '白场', value: render.white, min: 70, max: 100, onChange: (v) => patch((p) => ({ ...p, render: { ...p.render, white: v } })) }),
-    h(SelectField, {
-      label: '抖动',
-      value: render.dither,
-      options: [{ value: 'none', label: '无' }, { value: 'bayer4', label: 'Bayer 4×4' }, { value: 'floyd', label: '误差扩散' }],
-      onChange: (v) => patch((p) => ({ ...p, render: { ...p.render, dither: v } }))
-    }),
-    h(NumberField, {
-      label: '透明度（%）',
-      value: render.transparency,
-      min: 0,
-      max: 100,
-      step: 5,
-      onChange: (v) => patch((p) => ({ ...p, render: { ...p.render, transparency: Math.round(v) } }))
-    })
+    h('div', { className: 'pw-fields' },
+      h(SelectField, {
+        label: '形状',
+        value: render.shape,
+        options: [{ value: 'square', label: '方形' }, { value: 'rounded', label: '圆角' }, { value: 'dot', label: '圆点' }],
+        onChange: (v) => patch((p) => ({ ...p, render: { ...p.render, shape: v } }))
+      }),
+      h(NumberField, { label: '层数', value: render.levels, min: 2, max: 16, onChange: (v) => patch((p) => ({ ...p, render: { ...p.render, levels: v } })) }),
+      h(NumberField, { label: 'gamma', value: render.gamma, min: 0.4, max: 2, step: 0.1, onChange: (v) => patch((p) => ({ ...p, render: { ...p.render, gamma: v } })) }),
+      h(NumberField, { label: '黑场', value: render.black, min: 0, max: 30, onChange: (v) => patch((p) => ({ ...p, render: { ...p.render, black: v } })) }),
+      h(NumberField, { label: '白场', value: render.white, min: 70, max: 100, onChange: (v) => patch((p) => ({ ...p, render: { ...p.render, white: v } })) }),
+      h(SelectField, {
+        label: '抖动',
+        value: render.dither,
+        options: [{ value: 'none', label: '无' }, { value: 'bayer4', label: 'Bayer 4×4' }, { value: 'floyd', label: '误差扩散' }],
+        onChange: (v) => patch((p) => ({ ...p, render: { ...p.render, dither: v } }))
+      }),
+      h(NumberField, {
+        label: '透明度（%）',
+        value: render.transparency,
+        min: 0,
+        max: 100,
+        step: 5,
+        onChange: (v) => patch((p) => ({ ...p, render: { ...p.render, transparency: Math.round(v) } }))
+      })
+    )
   )
 
   /** 色值与底色（插件通用）。 */
@@ -1768,7 +1802,7 @@ function startRenderer(ctx) {
     version: 3,
     coverage: { header: true, left: true, right: true, input: false },
     grid: { mode: 'auto', cellWidth: null, gap: null },
-    render: { shape: 'square', levels: 8, palette: ['#1b1b1b', '#c9c9c9'], gamma: 1.0, black: 0, white: 100, dither: 'none', background: '#141414', transparency: 80 },
+    render: { shape: 'square', levels: 8, palette: ['#1b1b1b', '#c9c9c9'], gamma: 1.0, black: 0, white: 100, dither: 'none', background: '#141414', transparency: 90 },
     animation: { playing: true, speed: 1 },
     algorithm: { id: 'boids', seed: 1337, params: {} }
   }
@@ -1968,6 +2002,7 @@ module.exports = {
     paletteAt,
     shadeToRgb,
     fadeToBackground,
+    withDefaults,
     hexToRgb,
     clamp,
     registerAlgorithm,

@@ -44,7 +44,7 @@ const DEFAULT_CONFIG = Object.freeze({
     white: 100,
     dither: 'none',
     background: '#141414',
-    transparency: 80
+    transparency: 90
   },
   animation: { playing: true, speed: 1 },
   algorithm: { id: 'boids', seed: 1337, params: {} }

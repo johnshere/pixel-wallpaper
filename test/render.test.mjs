@@ -1,5 +1,5 @@
 /**
- * 渲染纯函数测试：透明度混合（默认 80% 透明，只保留 20%）。
+ * 渲染纯函数测试：透明度混合（默认 90% 透明，只保留 10%）。
  */
 
 import assert from 'node:assert/strict'
@@ -19,7 +19,8 @@ globalThis.window = {
 }
 require('../client/bundle.js')
 
-const { fadeToBackground } = loaded.get('dsh-pixel-wallpaper').__internals
+const internals = loaded.get('dsh-pixel-wallpaper').__internals
+const { fadeToBackground } = internals
 
 test('透明度 0：颜色不变', () => {
   assert.deepEqual(fadeToBackground([201, 201, 201], [20, 20, 20], 0), [201, 201, 201])
@@ -35,4 +36,20 @@ test('透明度 80：只保留 20%，朝底色混合', () => {
 test('透明度 100：完全等于底色；越界被 clamp', () => {
   assert.deepEqual(fadeToBackground([255, 255, 255], [20, 20, 20], 100), [20, 20, 20])
   assert.deepEqual(fadeToBackground([255, 255, 255], [20, 20, 20], 999), [20, 20, 20])
+})
+
+test('withDefaults 用默认值补齐旧宿主返回的配置', () => {
+  const { withDefaults } = internals
+  const merged = withDefaults({
+    coverage: { input: true },
+    render: { levels: 4, palette: ['#000', '#fff'] },
+    algorithm: { id: 'flow' }
+  })
+  assert.equal(merged.render.levels, 4)
+  assert.equal(merged.render.transparency, 90)
+  assert.equal(merged.render.background, '#141414')
+  assert.equal(merged.coverage.input, true)
+  assert.equal(merged.coverage.header, true)
+  assert.equal(merged.algorithm.id, 'flow')
+  assert.equal(merged.algorithm.seed, 1337)
 })

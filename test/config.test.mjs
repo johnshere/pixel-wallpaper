@@ -22,7 +22,7 @@ test('默认配置与 DESIGN.md §8 一致', () => {
   assert.equal(c.grid.mode, 'auto')
   assert.equal(c.render.levels, 8)
   assert.deepEqual(c.render.palette, ['#1b1b1b', '#c9c9c9'])
-  assert.equal(c.render.transparency, 80)
+  assert.equal(c.render.transparency, 90)
   assert.equal(c.coverage.input, false)
   assert.equal(c.algorithm.id, 'boids')
 })
