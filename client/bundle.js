@@ -1,4 +1,4 @@
-/*! dsh-pixel-wallpaper v0.1.0 | MIT | 构建产物，请勿手改，源码见 client/index.js */
+/*! dsh-pixel-wallpaper v0.1.0 | MIT | 构建产物，请勿手改 */
 window.__ModuleLoader__.load({
   id: "dsh-pixel-wallpaper",
   factory: (require) => {
@@ -2108,7 +2108,6 @@ window.__ModuleLoader__.load({
         createAttractor
       }
     }
-
     return module.exports
   }
 })

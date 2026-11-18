@@ -30,8 +30,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "node scripts/build-client.mjs",
-    "stage": "node scripts/stage.mjs",
+    "build": "node scripts/build.mjs",
     "check": "node --check src/index.js && node --check client/bundle.js",
     "test": "node --test \"test/*.test.mjs\""
   }
