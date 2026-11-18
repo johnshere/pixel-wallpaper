@@ -17,7 +17,7 @@ DSH Web 的像素格背景插件：在页面最底层铺一层由算法实时生
 ```jsonc
 {
   "dependencies": {
-    "dsh-pixel-wallpaper": "link:E:/Workspace/00-learning/dsh-pixel-wallpaper"
+    "dsh-pixel-wallpaper": "link:E:/path/to/dsh-pixel-wallpaper"
   },
   "dsh": {
     "profile": {
@@ -28,6 +28,8 @@ DSH Web 的像素格背景插件：在页面最底层铺一层由算法实时生
 ```
 
 然后在 profile 目录执行 `pnpm install`，刷新页面（必要时重启 DSH）。设置入口在设置页的「像素背景」一节。
+
+> DSH 跑在 Windows 上时，`link:` 必须是 Windows 能解析的路径。工程若在 WSL 里，先在 Windows 侧建一个指向 `\\wsl.localhost\<发行版>\...` 的目录符号链接，再 `link:` 那个链接（pnpm 不认 UNC 路径）。
 
 ## 开发
 

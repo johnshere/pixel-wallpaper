@@ -334,7 +334,7 @@ npm test          # 网格/调色板纯函数单测
 
 安装（由主进程执行，子代理不做）：
 
-1. web profile 的 `package.json` dependencies 增加 `"dsh-pixel-wallpaper": "link:E:/Workspace/00-learning/dsh-pixel-wallpaper"`；
+1. web profile 的 `package.json` dependencies 增加 `"dsh-pixel-wallpaper": "link:<Windows 可见路径>"`（工程在 WSL 时，先建指向 `\\wsl.localhost\<发行版>\...` 的目录符号链接，link 该链接）；
 2. `dsh.profile.bundles` 增加 `dsh-pixel-wallpaper`；
 3. profile 目录 `pnpm install`；
 4. 刷新页面 / 重启 DSH 生效。
