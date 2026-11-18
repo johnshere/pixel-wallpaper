@@ -29,12 +29,13 @@ DSH Web 的像素格背景插件：在页面最底层铺一层由算法实时生
 
 然后在 profile 目录执行 `pnpm install`，刷新页面（必要时重启 DSH）。设置入口在设置页的「像素背景」一节。
 
-> DSH 跑在 Windows 上时，`link:` 必须是 Windows 能解析的路径。工程若在 WSL 里，先在 Windows 侧建一个指向 `\\wsl.localhost\<发行版>\...` 的目录符号链接，再 `link:` 那个链接（pnpm 不认 UNC 路径）。
+> DSH 跑在 Windows 上时，`link:` 必须是 Windows 的**盘符绝对路径**。DSH 读取插件元信息时用 `file://` 拼接包路径，UNC 路径（`\\wsl.localhost\...`）会抛 `ERR_INVALID_FILE_URL_PATH: File URL path must be absolute`。所以工程在 WSL 里开发时，不要直接 link WSL 或 UNC 路径，而是先 `npm run stage` 把运行时文件同步到 Windows 本地目录（默认 `E:/Workspace/00-a-temp/dsh-pixel-wallpaper`，可用 `PIXEL_WALLPAPER_STAGE` 覆盖），再 `link:` 那个目录。
 
 ## 开发
 
 ```bash
 npm run build   # client/index.js -> client/bundle.js（宿主加载的产物，需入库）
+npm run stage   # build 后把 package.json/src/client 等同步到 Windows 暂存目录
 npm run check   # node --check 两个入口
 npm test        # 网格几何 / 调色板 / 六算法 / 配置读写
 ```
