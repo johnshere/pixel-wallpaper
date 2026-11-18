@@ -964,10 +964,10 @@ window.__ModuleLoader__.load({
         if (floyd) errorBuf = new Float32Array(grid.cols * grid.rows)
 
         for (let r = 0; r < grid.rows; r++) {
-          const y = yPos[r]
+          const y = yPos[r].pos
           const hgt = yPos[r].size
           for (let cIdx = 0; cIdx < grid.cols; cIdx++) {
-            const x = xPos[cIdx]
+            const x = xPos[cIdx].pos
             const wdt = xPos[cIdx].size
             let v = algorithm.field[r * grid.cols + cIdx]
             if (floyd) {
@@ -1531,13 +1531,13 @@ window.__ModuleLoader__.load({
         ),
         h(NumberField, { label: '种子', value: algo.seed, min: 0, max: 999999, step: 1, onChange: (v) => patch((p) => ({ ...p, algorithm: { ...p.algorithm, seed: Math.round(v) } })) }),
         // 单元格宽 / 间隔（自动只读，改即转手动）
-        h(grid.mode === 'auto'
+        (grid.mode === 'auto'
           ? h('div', { className: 'pw-row' },
             h('span', { className: 'pw-row-label' }, '单元格宽（自动）'),
             h('span', { className: 'pw-hint' }, gridInfo ? `${gridInfo.cell}px` : '—'),
             h('button', { className: 'pw-btn pw-btn-mini', disabled: !gridInfo, onClick: toManual }, '调整'))
           : h(NumberField, { label: '单元格宽', value: grid.cellWidth, min: 2, max: 40, onChange: (v) => patch((p) => ({ ...p, grid: { ...p.grid, mode: 'manual', cellWidth: v } })) })),
-        h(grid.mode === 'auto'
+        (grid.mode === 'auto'
           ? h('div', { className: 'pw-row' },
             h('span', { className: 'pw-row-label' }, '间隔（自动）'),
             h('span', { className: 'pw-hint' }, gridInfo ? `${gridInfo.gx}px` : '—'),
@@ -1698,7 +1698,9 @@ window.__ModuleLoader__.load({
         algorithm: { id: 'boids', seed: 1337, params: {} }
       }
 
+      let lastGridInfo = null
       const onGrid = (info) => {
+        lastGridInfo = info
         if (typeof window !== 'undefined') {
           window.dispatchEvent(new CustomEvent('pixel-wallpaper:grid', { detail: info }))
         }
@@ -1721,6 +1723,8 @@ window.__ModuleLoader__.load({
         runtime.regions = recognized
         if (typeof window !== 'undefined') {
           window.dispatchEvent(new CustomEvent('pixel-wallpaper:regions', { detail: { regions: recognized } }))
+          // 设置页是后挂载的：补发最近一次网格信息，避免「单元格宽」一直显示 —。
+          if (lastGridInfo) window.dispatchEvent(new CustomEvent('pixel-wallpaper:grid', { detail: lastGridInfo }))
         }
       }
       renderer.setCoverageProvider(() => cachedRects)
