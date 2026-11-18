@@ -1139,29 +1139,68 @@ function createRenderer(canvas, config, onGrid) {
  * @returns {{header:?, left:?, right:?, input:?}}
  */
 function measureRegions() {
-  const result = { header: null, left: null, right: null, input: null }
+  const result = { header: null, left: null, right: null, input: null, rightClosed: false }
   try {
     // 顶栏：header 或带 topBar 后缀
     const headerEl = document.querySelector('header') || document.querySelector('[class*="topBar"]') || document.querySelector('[class*="topbar"]')
     if (headerEl) result.header = rectOf(headerEl)
 
-    // 左栏：最左侧 aside/nav（含会话列表）
-    const asides = document.querySelectorAll('aside, nav')
-    result.left = findLeft(asides)
+    // 左栏：DSH 主布局的 sidebarCol（回退最左侧 aside/nav）
+    const leftEl = document.querySelector('[class*="sidebarCol"]')
+      || document.querySelector('[class*="sidebarCol" i]')
+    if (leftEl) {
+      result.left = rectOf(leftEl)
+    } else {
+      result.left = findLeft(document.querySelectorAll('aside, nav'))
+    }
 
-    // 侧栏：右侧 aside（排除已选的左栏）
-    result.right = findRight(asides, result.left)
+    // 侧栏：右侧 rightbarCol；宽度为 0 表示面板未打开（仍算识别，不算未识别）
+    const rightEl = document.querySelector('[class*="rightbarCol"]')
+      || document.querySelector('[class*="rightbarCol" i]')
+    if (rightEl) {
+      const r = rightEl.getBoundingClientRect()
+      if (r.width >= 10 && r.height >= 10) result.right = rectOf(rightEl)
+      else result.rightClosed = true
+    } else {
+      result.right = findRight(document.querySelectorAll('aside'), result.left)
+    }
 
-    // 输入区：textarea 向上找最近的固定/粘性容器
-    const ta = document.querySelector('textarea')
-    if (ta) {
-      const container = findComposerContainer(ta)
-      result.input = container ? rectOf(container) : null
+    // 输入区：DSH 输入框是 contenteditable（不再有 textarea），优先取输入卡片容器
+    const editor = document.querySelector('[contenteditable="true"][role="textbox"]')
+      || document.querySelector('[contenteditable="true"]')
+      || document.querySelector('textarea')
+    if (editor) {
+      const container = editor.tagName === 'TEXTAREA'
+        ? findComposerContainer(editor)
+        : findComposerBox(editor)
+      result.input = rectOf(container || editor)
     }
   } catch {
     // 测量失败：全部视为未识别，不影响背景整体
   }
   return result
+}
+
+/** 找 contenteditable 输入框所在的卡片容器。 */
+function findComposerBox(editor) {
+  const card = editor.closest('[data-composer-card]')
+  if (card) return card
+  const er = editor.getBoundingClientRect()
+  let node = editor.parentElement
+  let candidate = editor
+  let depth = 0
+  while (node && depth < 8) {
+    const r = node.getBoundingClientRect()
+    if (r.height > window.innerHeight * 0.5) break
+    if (r.width >= er.width && r.height >= er.height) candidate = node
+    if (/composer/i.test(typeof node.className === 'string' ? node.className : '')) {
+      candidate = node
+      break
+    }
+    node = node.parentElement
+    depth++
+  }
+  return candidate
 }
 
 /** 元素的 getBoundingClientRect，外扩 2 CSS px。 */
@@ -1315,6 +1354,9 @@ const UI_CSS = `
 .pw-desc{font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary,#999)}
 .pw-group{display:flex;flex-direction:column;gap:6px}
 .pw-group-label{font-size:12px;color:var(--dsw-alias-label-secondary,#aaa)}
+.pw-coverage-row{display:flex;flex-direction:row;flex-wrap:nowrap;align-items:center;gap:16px}
+.pw-coverage-row .pw-row{flex:0 0 auto}
+.pw-coverage-row .pw-row-label{flex:0 0 auto}
 .pw-row{display:flex;align-items:center;gap:8px}
 .pw-row-label{font-size:13px;color:var(--dsw-alias-label-primary,#e8e8e8);flex:1}
 .pw-hint{font-size:11px;color:var(--dsw-alias-label-tertiary,#999)}
@@ -1385,6 +1427,7 @@ function SettingsSection() {
   const [saveNote, setSaveNote] = React.useState('')
   const [tab, setTab] = React.useState('algorithm')
   const [regions, setRegions] = React.useState({ header: true, left: true, right: true, input: true })
+  const [closed, setClosed] = React.useState({})
 
   React.useEffect(() => {
     let alive = true
@@ -1392,7 +1435,11 @@ function SettingsSection() {
       .then((c) => { if (alive) setConfig(c) })
       .catch((err) => { if (alive) setLoadError(`读取配置失败：${err.message}`) })
     // 监听区域测量结果
-    const onRegions = (e) => { if (alive && e.detail) setRegions(e.detail.regions) }
+    const onRegions = (e) => {
+      if (!alive || !e.detail) return
+      setRegions(e.detail.regions || {})
+      setClosed(e.detail.closed || {})
+    }
     window.addEventListener('pixel-wallpaper:regions', onRegions)
     return () => { alive = false; window.removeEventListener('pixel-wallpaper:regions', onRegions) }
   }, [])
@@ -1446,6 +1493,11 @@ function SettingsSection() {
 
   /** 影响范围是否未识别。 */
   const regionUnrecognized = (key) => regions && regions[key] === false
+  /** 区域未识别的原因文案（面板没开 / 找不到容器）。 */
+  const regionSuffix = (key) => {
+    if (!regionUnrecognized(key)) return ''
+    return closed && closed[key] ? '（未打开）' : '（未识别）'
+  }
   const coverageLabels = {
     header: '顶栏',
     left: '左栏',
@@ -1466,7 +1518,7 @@ function SettingsSection() {
 
   /** 通用参数区。 */
   const renderParamControls = h('div', { className: 'pw-group' },
-    h('div', { className: 'pw-group-label' }, '通用参数'),
+    h('div', { className: 'pw-group-label' }, '通用配置'),
     h(SelectField, {
       label: '形状',
       value: render.shape,
@@ -1568,19 +1620,21 @@ function SettingsSection() {
     })
   )
 
-  /** 算法卡片 2×3（名称 + 一句说明）。 */
-  const algoCards = h('div', { className: 'pw-card' },
-    algorithmIds().map((id) => {
-      const def = algorithmOf(id)
-      const selected = id === algo.id
-      return h('div', {
-        key: id,
-        className: `pw-algo${selected ? ' pw-algo-selected' : ''}`,
-        onClick: () => patch((p) => ({ ...p, algorithm: { ...p.algorithm, id } }))
-      },
-        h('div', { className: 'pw-algo-name' }, def.label),
-        h('div', { className: 'pw-algo-desc' }, def.desc))
-    })
+  /** 算法下拉：每个选项 = 名称 + 一句说明。 */
+  const algorithmSelect = h('div', { className: 'pw-group' },
+    h('div', { className: 'pw-group-label' }, '算法'),
+    h('select', {
+      className: 'pw-select',
+      style: { width: '100%' },
+      value: algo.id,
+      onChange: (e) => patch((p) => ({ ...p, algorithm: { ...p.algorithm, id: e.target.value } }))
+    },
+      algorithmIds().map((id) => {
+        const def = algorithmOf(id)
+        return h('option', { key: id, value: id }, `${def.label} — ${def.desc}`)
+      })
+    ),
+    h('div', { className: 'pw-hint', style: { lineHeight: '16px' } }, algoDef.desc)
   )
 
   /** 播放/暂停 + 速度。 */
@@ -1589,16 +1643,18 @@ function SettingsSection() {
     h(NumberField, { label: '速度', value: anim.speed, min: 0.25, max: 2, step: 0.05, onChange: (v) => patch((p) => ({ ...p, animation: { ...p.animation, speed: v } })) })
   )
 
-  /** 影响范围四个开关。 */
+  /** 背景范围四个开关（同一行）。 */
   const coverageControls = h('div', { className: 'pw-group' },
-    h('div', { className: 'pw-group-label' }, '影响范围'),
-    ['header', 'left', 'right', 'input'].map((key) =>
-      h(Toggle, {
-        key,
-        label: coverageLabels[key] + (regionUnrecognized(key) ? '（未识别）' : ''),
-        checked: Boolean(cov[key]),
-        onChange: (v) => patch((p) => ({ ...p, coverage: { ...p.coverage, [key]: v } }))
-      })
+    h('div', { className: 'pw-group-label' }, '背景范围'),
+    h('div', { className: 'pw-coverage-row' },
+      ['header', 'left', 'right', 'input'].map((key) =>
+        h(Toggle, {
+          key,
+          label: coverageLabels[key] + regionSuffix(key),
+          checked: Boolean(cov[key]),
+          onChange: (v) => patch((p) => ({ ...p, coverage: { ...p.coverage, [key]: v } }))
+        })
+      )
     )
   )
 
@@ -1620,11 +1676,10 @@ function SettingsSection() {
     ),
     tab === 'algorithm'
       ? h('div', { className: 'pw-section' },
-        algoCards,
+        renderParamControls,
         playControls,
         h('div', { className: 'pw-divid' }),
-        renderParamControls,
-        h('div', { className: 'pw-divid' }),
+        algorithmSelect,
         schemaControls
       )
       : imageTab,
@@ -1716,7 +1771,9 @@ function startRenderer(ctx) {
     }
     runtime.regions = recognized
     if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('pixel-wallpaper:regions', { detail: { regions: recognized } }))
+      window.dispatchEvent(new CustomEvent('pixel-wallpaper:regions', {
+        detail: { regions: recognized, closed: { right: Boolean(cachedRects.rightClosed) } }
+      }))
       // 设置页是后挂载的：补发最近一次网格信息，避免「单元格宽」一直显示 —。
       if (lastGridInfo) window.dispatchEvent(new CustomEvent('pixel-wallpaper:grid', { detail: lastGridInfo }))
     }
