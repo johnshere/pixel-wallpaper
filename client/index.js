@@ -69,9 +69,9 @@ function clamp(v, lo, hi) {
  * @returns {{cols:number, rows:number, cell:number, gx:number, gy:number}}
  */
 function computeAutoGrid(Wdev, Hdev, dpr) {
-  let N0 = 140
-  if (Wdev / N0 < 7 * dpr) {
-    N0 = Math.max(8, Math.floor(Wdev / (7 * dpr)))
+  let N0 = 250
+  if (Wdev / N0 < 5 * dpr) {
+    N0 = Math.max(8, Math.floor(Wdev / (5 * dpr)))
   }
   const slot = Wdev / N0
   const g0 = Math.max(1, Math.round(slot * 0.12))
@@ -1259,38 +1259,6 @@ function findComposerContainer(textarea) {
  * 底层透底（DESIGN.md §10）
  * ──────────────────────────────────────────────────────────────────────── */
 
-/**
- * 注入最小规则让 html/body 背景透明；运行时探测铺满视口且背景不透明的元素，
- * 只清它的 background-color（探测失败就不清）。
- *
- * 注意：样式只在 apply 里写一次；这里只做 DOM 探测，可以被安全地重复调用。
- */
-function enforceTransparency() {
-  if (typeof document === 'undefined') return
-  try {
-    // 根节点可能带 inline background，直接清掉最稳妥。
-    document.documentElement.style.backgroundColor = 'transparent'
-    if (document.body) document.body.style.backgroundColor = 'transparent'
-    // 探测覆盖视口且背景不透明的元素，清 background-color
-    const candidates = document.querySelectorAll('div, section, main, body > *')
-    for (const el of candidates) {
-      try {
-        const r = el.getBoundingClientRect()
-        if (r.width < window.innerWidth * 0.9 || r.height < window.innerHeight * 0.9) continue
-        const cs = window.getComputedStyle(el)
-        const bg = cs.backgroundColor
-        if (bg && bg !== 'transparent' && bg !== 'rgba(0, 0, 0, 0)') {
-          el.style.backgroundColor = 'transparent'
-        }
-      } catch {
-        // 单个元素失败跳过
-      }
-    }
-  } catch {
-    // 探测失败：宁可看不见也不破坏宿主
-  }
-}
-
 /** 确保一个 style 节点存在并返回它。 */
 function ensureStyle(id) {
   if (typeof document === 'undefined') return null
@@ -1345,6 +1313,10 @@ function debounce(fn, wait) {
 /** 底层样式：画布与透明化。只在 apply 里写一次。 */
 const BASE_CSS = `
 html, body { background: transparent !important; }
+body, body[data-ds-dark-theme], body[data-ds-light-theme] {
+  --dsw-alias-bg-base: transparent !important;
+  --dsw-specific-sidebar-fill: transparent !important;
+}
 #${CANVAS_ID} { position: fixed; inset: 0; z-index: -1; pointer-events: none; width: 100%; height: 100%; }
 `
 
@@ -1562,7 +1534,7 @@ function SettingsSection() {
         }, '−'),
         h('button', {
           className: 'pw-btn pw-btn-mini',
-          onClick: () => patch((p) => ({ ...p, render: { ...p.render, palette: ['#000000', '#ffffff'] } }))
+          onClick: () => patch((p) => ({ ...p, render: { ...p.render, palette: ['#1b1b1b', '#c9c9c9'] } }))
         }, '灰白')
       )
     ),
@@ -1739,10 +1711,10 @@ function startRenderer(ctx) {
   }
 
   const initialConfig = {
-    version: 1,
+    version: 2,
     coverage: { header: true, left: true, right: true, input: false },
     grid: { mode: 'auto', cellWidth: null, gap: null },
-    render: { shape: 'square', levels: 8, palette: ['#000000', '#ffffff'], gamma: 1.0, black: 0, white: 100, dither: 'none', background: '#000000' },
+    render: { shape: 'square', levels: 8, palette: ['#1b1b1b', '#c9c9c9'], gamma: 1.0, black: 0, white: 100, dither: 'none', background: '#141414' },
     animation: { playing: true, speed: 1 },
     algorithm: { id: 'boids', seed: 1337, params: {} }
   }
@@ -1816,22 +1788,19 @@ function startRenderer(ctx) {
     })
   }
 
-  // 区域测量：resize/DOM 变化时节流重测（节流 500ms）
-  let lastMeasure = 0
-  const scheduleMeasure = () => {
-    const now = Date.now()
-    if (now - lastMeasure < 500) return
-    lastMeasure = now
-    refreshRegions()
-  }
+  // 区域测量：resize/DOM 变化时防抖重测；防抖保证最后一次变化一定被测量，
+  // 不会因为「节流窗口内被丢弃」而永远停在启动时的旧结果。
+  const scheduleMeasure = debounce(refreshRegions, 300)
   if (typeof window !== 'undefined') {
     window.addEventListener('resize', scheduleMeasure)
   }
   if (typeof document !== 'undefined' && typeof MutationObserver !== 'undefined') {
-    const observer = new MutationObserver(debounce(scheduleMeasure, 500))
+    const observer = new MutationObserver(scheduleMeasure)
     observer.observe(document.body, { childList: true, subtree: true })
     runtime.observer = observer
   }
+  // 页面刚加载时 composer 往往晚于插件挂载：补测一次。
+  setTimeout(refreshRegions, 1200)
 
   // ResizeObserver 观察 documentElement；matchMedia 监听 DPR 变化
   setupResizeHandlers(renderer, initialConfig)
@@ -1883,10 +1852,6 @@ function apply(ctx) {
   try {
     if (typeof document !== 'undefined') {
       ensureStyle(STYLE_ID).textContent = BASE_CSS + UI_CSS
-      enforceTransparency()
-      // 客户端插件可能早于应用外壳挂载：延后补两次探测，避免被后挂载的不透明容器盖住。
-      setTimeout(enforceTransparency, 300)
-      setTimeout(enforceTransparency, 1500)
       startRenderer(ctx)
     }
     registerSettings(ctx)

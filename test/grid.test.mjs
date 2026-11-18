@@ -44,9 +44,9 @@ function assertGapNear(a, b) {
   assert.ok(Math.abs(a - b) <= thresh + 1e-6, `间隔差 |${a}-${b}|=${Math.abs(a - b)} 应 <= ${thresh}`)
 }
 
-test('自动 1920×1080@1：N0=140，首末格贴边，间隔接近', () => {
+test('自动 1920×1080@1：N0=250，首末格贴边，间隔接近', () => {
   const g = computeAutoGrid(1920, 1080, 1)
-  assert.equal(g.cols, 140, '无窄窗保护时列数应保持 140')
+  assert.equal(g.cols, 250, '无窄窗保护时列数应保持 250')
   assert.ok(g.rows > 0, '应有行数')
   const xPos = computePositions(1920, g.cols, g.cell, g.gx, false, 0)
   const yPos = computePositions(1080, g.rows, g.cell, g.gy, false, 0)
@@ -57,7 +57,7 @@ test('自动 1920×1080@1：N0=140，首末格贴边，间隔接近', () => {
 
 test('自动 3840×2160@2：物理格子尺寸不随缩放漂移', () => {
   const g = computeAutoGrid(3840, 2160, 2)
-  assert.equal(g.cols, 140)
+  assert.equal(g.cols, 250)
   assert.ok(g.rows > 0)
   const xPos = computePositions(3840, g.cols, g.cell, g.gx, false, 0)
   const yPos = computePositions(2160, g.rows, g.cell, g.gy, false, 0)
@@ -76,10 +76,10 @@ test('自动 1280×720@1.5：非整数 dpr 也能贴边', () => {
   assertGapNear(g.gx, g.gy)
 })
 
-test('自动 600×800@1（窄窗保护）：N0 从 140 压缩', () => {
+test('自动 600×800@1（窄窗保护）：N0 从 250 压缩', () => {
   const g = computeAutoGrid(600, 800, 1)
-  // 600/140 = 4.28 < 7*1，触发窄窗保护
-  assert.ok(g.cols < 140, '窄窗应压缩列数')
+  // 600/250 = 2.4 < 5*1，触发窄窗保护
+  assert.ok(g.cols < 250, '窄窗应压缩列数')
   assert.ok(g.cols >= 8, '列数至少 8')
   const xPos = computePositions(600, g.cols, g.cell, g.gx, false, 0)
   const yPos = computePositions(800, g.rows, g.cell, g.gy, false, 0)

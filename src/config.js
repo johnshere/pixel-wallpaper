@@ -32,18 +32,18 @@ const GRID_MODES = ['auto', 'manual']
  * 默认配置（首次安装值，与 DESIGN.md §8 完全一致）。
  */
 const DEFAULT_CONFIG = Object.freeze({
-  version: 1,
+  version: 2,
   coverage: { header: true, left: true, right: true, input: false },
   grid: { mode: 'auto', cellWidth: null, gap: null },
   render: {
     shape: 'square',
     levels: 8,
-    palette: ['#000000', '#ffffff'],
+    palette: ['#1b1b1b', '#c9c9c9'],
     gamma: 1.0,
     black: 0,
     white: 100,
     dither: 'none',
-    background: '#000000'
+    background: '#141414'
   },
   animation: { playing: true, speed: 1 },
   algorithm: { id: 'boids', seed: 1337, params: {} }
@@ -284,11 +284,17 @@ function sanitizeAnimation(value) {
  */
 function sanitize(input) {
   const src = input && typeof input === 'object' ? input : {}
+  const render = sanitizeRender(src.render)
+  // v1 的默认调色板是纯黑/纯白，换成灰白默认；只迁移一次，不覆盖之后的选择。
+  if (Number(src.version) === 1) {
+    render.palette = DEFAULT_CONFIG.render.palette.slice()
+    render.background = DEFAULT_CONFIG.render.background
+  }
   return {
-    version: 1,
+    version: 2,
     coverage: sanitizeCoverage(src.coverage),
     grid: sanitizeGrid(src.grid),
-    render: sanitizeRender(src.render),
+    render,
     animation: sanitizeAnimation(src.animation),
     algorithm: sanitizeAlgorithm(src.algorithm)
   }

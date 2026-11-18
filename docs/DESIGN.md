@@ -76,7 +76,7 @@ package.json 关键字段：
 
 ## 4. 视觉基调
 
-- 默认纯灰阶、低饱和、无彩色；格与格之间露出底色，默认 `#000000`。
+- 默认纯灰阶、低饱和、无彩色；格与格之间露出底色，默认 `#141414`，格子最亮 `#c9c9c9`。
 - 无渐变、无阴影、无毛玻璃；设置页沿用 DSH 的暗色控件风格，插件只补少量排版样式。
 - 背景是「低亮度、低对比」的底层纹理：文字区域之上永远压着宿主自己的面板，不抢阅读。
 
@@ -93,9 +93,9 @@ package.json 关键字段：
 
 ```
 W_dev, H_dev, dpr
-N0 = 140                                  # 横向目标列数
-若 W_dev / N0 < 7 * dpr:                   # 窄窗保护
-    N0 = max(8, floor(W_dev / (7 * dpr)))
+N0 = 250                                  # 横向目标列数
+若 W_dev / N0 < 5 * dpr:                   # 窄窗保护
+    N0 = max(8, floor(W_dev / (5 * dpr)))
 slot = W_dev / N0
 g0   = max(1, round(slot * 0.12))          # 目标间隔 = 步距 12%
 c    = max(2, round(slot - g0))            # 单元格（正方形，宽=高）
@@ -108,7 +108,7 @@ g_y  = m > 1 ? (H_dev - m * c) / (m - 1) : g_x
 - **两向间隔必须接近**：若 `|g_x - g_y| > max(0.5, 0.2 * min(g_x, g_y))`，在 `m-1 / m / m+1` 中重选，取 `|g_x-g_y|` 最小且 `g_y >= 0.5` 者；仍不满足则接受当前值。
 - 兜底：`g_x < 0.5` 时 `n -= 1` 重解（`n >= 1`）；`g_y < 0.5` 时同理动 `m`。
 - `c` 是正方形边长；横向、纵向各自解出自己的间隔，不强行相等。
-- 极端窄窗下 `n` 可以小于 140，这是预期行为。
+- 极端窄窗下 `n` 可以小于 250，这是预期行为。
 
 ### 5.3 手动模式
 
@@ -161,9 +161,9 @@ level = round(v * (levels - 1))      # 0..levels-1
 color = paletteAt(level / (levels - 1))
 ```
 
-- **调色板**：一组由暗到亮的色标（2–8 个十六进制颜色），默认 `["#000000", "#ffffff"]`；按段线性插值取色（sRGB 空间）。`levels` 与色标数量无关。
+- **调色板**：一组由暗到亮的色标（2–8 个十六进制颜色），默认 `["#1b1b1b", "#c9c9c9"]`；按段线性插值取色（sRGB 空间）。`levels` 与色标数量无关。
 - **形状**：方形（`fillRect`）／圆角（半径 = 边长 × 28%）／圆点（`arc`）。
-- **缝**：不画，直接露出 canvas 底色；底色默认 `#000000`，可配。
+- **缝**：不画，直接露出 canvas 底色；底色默认 `#141414`，可配。
 - **抖动**：Bayer 4×4 用 `(bayer/16 - 0.5) / levels` 作偏移；误差扩散用 Floyd–Steinberg，误差只在当前帧内传播。
 - 画布每帧先铺底色，再画格子；被「影响范围」关掉的矩形最后 `clearRect`（透明，露出宿主底层）。
 
@@ -200,18 +200,18 @@ create({ cols, rows, seed, params }) -> {
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "coverage": { "header": true, "left": true, "right": true, "input": false },
   "grid": { "mode": "auto", "cellWidth": null, "gap": null },
   "render": {
     "shape": "square",
     "levels": 8,
-    "palette": ["#000000", "#ffffff"],
+    "palette": ["#1b1b1b", "#c9c9c9"],
     "gamma": 1.0,
     "black": 0,
     "white": 100,
     "dither": "none",
-    "background": "#000000"
+    "background": "#141414"
   },
   "animation": { "playing": true, "speed": 1 },
   "algorithm": { "id": "boids", "seed": 1337, "params": {} }
@@ -250,12 +250,13 @@ create({ cols, rows, seed, params }) -> {
 ├─ 通用参数
 │   单元格宽 / 间隔（自动值旁有「调整」，点击转手动）
 │   形状 / 层数 / 色值调色板 / gamma / 黑场 / 白场 / 抖动 / 种子
-│   当前 140 × 79 格 · 9px / 1px      [重置为自动]
+│   当前 250 × 144 格 · 5px / 1.3px    [重置为自动]
 └─ 二级参数（按当前算法 schema 自动生成）
 ```
 
 行为：
 
+- 通用配置：形状/层数/gamma/黑场/白场/抖动/色值/底色/种子；单元格宽/间隔（自动值旁「调整」，点击转手动）；算法下拉（每项「名称 — 描述」）在最上，二级参数按当前算法 schema 生成。
 - 任何改动即时作用到画布（本地状态），300ms 防抖后 `PUT /pixel-wallpaper/api/config`；保存失败提示但不回滚画面。
 - 「影响范围」四个开关：开 = 背景延伸进该区域；关 = 该矩形不绘制（露出宿主底色）。默认顶栏/左栏/侧栏开，输入区关。
 - 单元格宽/间隔在自动模式下显示计算值并标「自动」；一旦手动编辑转手动模式并写盘。点「重置为自动」回到自动计算。
@@ -267,7 +268,7 @@ create({ cols, rows, seed, params }) -> {
 ## 10. 影响范围与区域测量
 
 - 画布固定在 `position: fixed; inset: 0; pointer-events: none; z-index: -1`（垫在内容之下），作为 `body` 第一个子节点；宿主内容自然盖在它上面。
-- 让底层透出：注入最小规则让 `html/body` 背景透明；若宿主某个铺满视口的容器仍画底色，运行时探测「覆盖视口且背景不透明」的元素，只清它的 `background-color`，并在启动后 300ms / 1500ms 各补一次（客户端可能早于应用外壳挂载），探测失败就不清（宁可看不见，也不破坏宿主）。
+- 让底层透出：只用 CSS，不改宿主 DOM 的 inline style（避免 React 重渲染后失效）。基础规则把 `html/body` 设为透明，并把 DSH 设计 token `--dsw-alias-bg-base`、`--dsw-specific-sidebar-fill` 在 `body`、`body[data-ds-dark-theme]`、`body[data-ds-light-theme]` 上覆盖为 `transparent !important`；面板与弹层仍走 elevated token，保持不透明可读。
 - 区域矩形每 500ms 或 `resize`/DOM 变化时节流重测；取候选元素的 `getBoundingClientRect()`：
   - 顶栏：`header` 或带 `topBar` 后缀的稳定类名；
   - 左栏：最左侧 `aside`/`nav`（含会话列表）；
