@@ -6,7 +6,7 @@
  * 2. 窄窗保护：N0 从 140 往下压，不崩；
  * 3. 手动 9/1 与手动 12/0（无缝），首格 0、末格贴边、无缝摊宽；
  * 4. 两向间隔差在阈值内（|gx-gy| <= max(0.5, 0.2*min(gx,gy))）；
- * 5. 整数定位：x_i = round(i*(W-c)/(n-1))，相邻缝在 g±1 内浮动。
+ * 5. 亚像素定位：x_i = i*(W-c)/(n-1)，相邻缝恒定、不被整数栅格量化。
  */
 
 import assert from 'node:assert/strict'
@@ -33,9 +33,9 @@ const { computeAutoGrid, computeManualGrid, computePositions } = bundle.__intern
 
 /** 断言首格贴 0、末格贴边。 */
 function assertEdges(extent, positions) {
-  assert.equal(positions[0].pos, 0, '首格应贴 0')
+  assert.ok(Math.abs(positions[0].pos) < 1e-9, '首格应贴 0')
   const last = positions[positions.length - 1]
-  assert.equal(last.pos + last.size, extent, '末格右缘应贴边')
+  assert.ok(Math.abs(last.pos + last.size - extent) < 1e-6, '末格右缘应贴边')
 }
 
 /** 断言两向间隔差在阈值内。 */
@@ -107,24 +107,25 @@ test('手动 12/0（无缝）：余量摊进单元宽，首末格贴边', () => 
   const yPos = computePositions(1080, g.rows, g.cell, g.gy, true, g.spreadY || 0)
   assertEdges(1920, xPos)
   assertEdges(1080, yPos)
-  // 无缝摊宽：前 spread 个格宽为 cell+1，其余 cell
-  assert.ok(xPos.every((p) => p.size === g.cell || p.size === g.cell + 1), '无缝格宽应为 cell 或 cell+1')
+  // 无缝摊宽：每格宽为 extent/n（浮点），格与格严丝合缝
+  assert.ok(xPos.every((p) => Math.abs(p.size - 1920 / g.cols) < 1e-9 || p === xPos[xPos.length - 1]), '无缝格宽应均摊')
 })
 
-test('整数定位：x_i=round(i*(W-c)/(n-1))，相邻缝在 g±1 内', () => {
-  const W = 1920
-  const n = 140
-  const c = 12
-  const g0 = 1
-  const pos = computePositions(W, n, c, g0, false, 0)
-  for (let i = 0; i < n; i++) {
-    const expect = Math.round((i * (W - c)) / (n - 1))
-    assert.equal(pos[i].pos, expect, `x_${i} 应按整数定位公式`)
-  }
-  // 相邻缝在 g0±1 内
-  for (let i = 1; i < n; i++) {
-    const gap = pos[i].pos - (pos[i - 1].pos + pos[i - 1].size)
-    assert.ok(Math.abs(gap - g0) <= 1, `第 ${i} 道缝 ${gap} 应在 ${g0}±1 内`)
+test('亚像素定位：相邻缝恒等，不再 0/1 交替', () => {
+  for (const [W, H, dpr] of [[1920, 1080, 1], [1576, 908, 1.25], [3840, 2160, 2]]) {
+    const ag = computeAutoGrid(W, H, dpr)
+    const n = ag.cols
+    const c = ag.cell
+    const pos = computePositions(W, n, c, ag.gx, false, 0)
+    const expect = (W - n * c) / (n - 1)
+    const gaps = []
+    for (let i = 1; i < n; i++) {
+      gaps.push(pos[i].pos - (pos[i - 1].pos + pos[i - 1].size))
+    }
+    for (const g of gaps) {
+      assert.ok(Math.abs(g - expect) < 1e-9, `缝应恒为 ${expect}，实际 ${g}`)
+    }
+    assert.ok(expect > 0, '缝必须为正')
   }
 })
 
@@ -133,7 +134,7 @@ test('无缝定位：余量大于格数时仍铺满、无重叠', () => {
   const pos = computePositions(100, 3, 31, 0, true, 7)
   assertEdges(100, pos)
   for (let i = 1; i < pos.length; i++) {
-    assert.equal(pos[i].pos, pos[i - 1].pos + pos[i - 1].size, '无缝时不应有重叠或空洞')
+    assert.ok(Math.abs(pos[i].pos - (pos[i - 1].pos + pos[i - 1].size)) < 1e-9, '无缝时不应有重叠或空洞')
   }
   assert.ok(pos.every((p) => p.size >= 31 && p.size <= 35), '每格宽应在基准附近')
 })

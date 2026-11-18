@@ -86,7 +86,7 @@ package.json 关键字段：
 ### 5.1 单位与画布
 
 - 一切几何以**设备像素**计算：`dpr = window.devicePixelRatio`，`W_dev = round(innerWidth * dpr)`，`H_dev = round(innerHeight * dpr)`。
-- 画布 backing store 设为 `W_dev × H_dev`，CSS 尺寸 100%；绘制坐标全用整数设备像素，保证边缘不糊。
+- 画布 backing store 设为 `W_dev × H_dev`，CSS 尺寸 100%；绘制坐标用**亚像素**（可为小数），由浏览器抗锯齿平滑，不再取整到设备像素栅格。
 - 用户可见的「单元格宽 / 间隔」以 CSS px 展示与保存；内部换算 `device = round(css * dpr)`。
 - 这样 Windows 缩放、浏览器缩放、换屏都不会让格子物理尺寸漂移；缩放时格子物理大小不变（不跟随页面缩放）。
 
@@ -99,7 +99,7 @@ N0 = 250                                  # 横向目标列数
     N0 = max(8, floor(W_dev / (5 * dpr)))
 slot = W_dev / N0
 g0   = max(1, round(slot * 0.12))          # 目标间隔 = 步距 12%
-c    = max(2, round(slot - g0))            # 单元格（正方形，宽=高）
+c    = max(2, slot - g0)                   # 单元格（正方形，宽=高；不取整）
 n    = N0
 g_x  = (W_dev - n * c) / (n - 1)           # 首格贴 0、末格贴右缘
 m    = max(1, round(H_dev / (c + g_x)))    # 高度没有目标行数
@@ -125,28 +125,37 @@ g_y = m > 1 ? (H_dev - m * c) / (m - 1) : 0
 ```
 
 - 不再按 N0 反推，也不做比例缩放；用户的值就是基准。
-- 仅保留整数设备像素定位（每道缝误差 ≤1px），这是贴边、不裁切的必要条件。
-- `g = 0` 时无缝：`n = max(1, floor(W_dev / c))`，把余量摊进单元格宽度（第 i 格宽 `c` 或 `c+1`），行同理；`g_x = g_y = 0`。
+- 定位一律用亚像素坐标（见 5.4），间隔 `g_x/g_y` 是解出来的实数，不再取整。
+- `g = 0` 时无缝：`n = max(1, floor(W_dev / c))`，把余量按浮点均摊进单元格宽度（每格 `W_dev/n`），行同理；`g_x = g_y = 0`。
 - 两向间隔阈值同 5.2；必要时 `n`、`m` 各 ±1 重解。
 
-### 5.4 整数定位（不能留边、不能切格）
+### 5.4 亚像素定位（贴边、不切格、缝隙恒定）
 
 `n > 1` 时：
 
 ```
-x_i = round(i * (W_dev - c) / (n - 1))      i = 0..n-1
-x_0 = 0
-末格右缘 = W_dev
-每格宽 = c（末格取 W_dev - x_{n-1}，必要时夹到 [1, c+1]）
+step = (W_dev - c) / (n - 1)
+x_i  = i * step                             i = 0..n-1
+每格宽 = c
 ```
 
 纵向同理（用 `H_dev`、`m`、`y_i`）。`n = 1` 时单元格铺满整宽；`m = 1` 铺满整高。
 
-性质：首格贴左/上边缘，末格贴右/下边缘，相邻缝在 `g_x ± 1` 内浮动，肉眼不可见；不需要外圈留白，也不需要裁切。
+性质：首格贴左/上边缘，末格右缘正好 `W_dev`；相邻缝恒等于 `step - c = (W_dev - n*c)/(n-1)`，**不再出现 0/1 交替**（旧实现用 `round` 取整，`g_x < 1` 时缝被量化成 0 或 1，表现为「有的格有缝、有的没有」）。
+
+代价是格子边缘落在半像素上、边缘略软；配合 90% 透明度与低对比色板，肉眼不可见。若需要绝对锐利，可整帧先按 `2x` 绘制再缩半（未实现，暂不需要）。
+
+### 5.6 渲染循环健壮性（防冻结）
+
+- `loop` 用 `try/catch` 包裹单帧：任何一帧抛错只记一次 `console.warn`（5s 节流）并继续排下一帧，不再让 `requestAnimationFrame` 断链。
+- 连续 3 帧出错时重建算法实例（自愈）；`field` 长度与 `cols*rows` 不符也重建。
+- 看门狗：`setInterval` 每秒检查一次，播放中且页面可见、但 1.5s 没收到 `rAF` 回调时，取消旧帧并重启动画链。
+- 监听 canvas 的 `contextlost` / `contextrestored`：恢复时重设 backing store 并重启循环。
+- 绘制时值非有限数（NaN/Infinity）按 0 处理，避免非法 `fillStyle` 静默吞掉整帧。
 
 ### 5.5 变化响应
 
-- `resize`、`dpr` 变化、字体/缩放变化：自动模式整组重算；手动模式保留 `cellWidthCss/gapCss`，只重算 `n/m/g_x/g_y` 与取整。
+- `resize`、`dpr` 变化、字体/缩放变化：自动模式整组重算；手动模式保留 `cellWidthCss/gapCss`，只重算 `n/m/g_x/g_y`。
 - 用 `ResizeObserver` 观察 `document.documentElement`，再用 `matchMedia('(resolution: Xdppx)')` 监听跨屏 DPR 变化。
 - 重算后重播种策略：**默认重采样**（把旧场按最近邻扩/缩到新尺寸）；只有切算法或改种子才重播种。重采样失败则重播种。
 

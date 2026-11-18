@@ -75,7 +75,8 @@ function computeAutoGrid(Wdev, Hdev, dpr) {
   }
   const slot = Wdev / N0
   const g0 = Math.max(1, Math.round(slot * 0.12))
-  const c = Math.max(2, Math.round(slot - g0))
+  // 格宽不取整：取整会让缝在 0/1 设备像素之间跳，出现「有的格有缝、有的没有」。
+  const c = Math.max(2, slot - g0)
 
   let n = N0
   let gx = n > 1 ? (Wdev - n * c) / (n - 1) : 0
@@ -201,19 +202,20 @@ function computePositions(extent, count, cell, gap, seamless, spread) {
     return out
   }
   if (seamless) {
-    // 无缝：把整段长度平均摊给所有格（余量可能大于格数，不能只加在前 spread 格上）。
+    // 无缝：把整段长度平均摊给所有格（浮点），格与格严丝合缝。
+    const step = extent / count
     for (let i = 0; i < count; i++) {
-      const pos = Math.round((i * extent) / count)
-      const end = i === count - 1 ? extent : Math.round(((i + 1) * extent) / count)
-      out.push({ pos, size: Math.max(1, end - pos) })
+      const pos = i * step
+      const end = i === count - 1 ? extent : (i + 1) * step
+      out.push({ pos, size: Math.max(0, end - pos) })
     }
     return out
   }
+  // 亚像素定位：pos_i = i*(extent-cell)/(count-1)，首格贴 0、末格贴边，
+  // 相邻缝恒等于 (extent-count*cell)/(count-1)，不再被整数栅格量化成 0/1 交替。
+  const step = (extent - cell) / (count - 1)
   for (let i = 0; i < count; i++) {
-    const pos = Math.round((i * (extent - cell)) / (count - 1))
-    let size = cell
-    if (i === count - 1) size = clamp(extent - pos, 1, cell + 1)
-    out.push({ pos, size })
+    out.push({ pos: i * step, size: cell })
   }
   return out
 }
@@ -899,6 +901,11 @@ function createRenderer(canvas, config, onGrid) {
   let coverageRects = null // 由外部注入
   let playing = cfg.animation && cfg.animation.playing !== false
   let dirty = true // 只有推进过模拟或配置变化才重绘，避免 120Hz 屏空转
+  let lastFrameAt = 0 // 最近一次 rAF 回调时间（看门狗用）
+  let frameErrors = 0
+  let lastErrorLog = 0
+  let lastRestartLog = 0
+  let watchdog = null
 
   const ctx2d = canvas.getContext('2d')
 
@@ -956,7 +963,7 @@ function createRenderer(canvas, config, onGrid) {
 
   /** 渲染一帧。 */
   function draw() {
-    if (destroyed || !grid) return
+    if (destroyed || !grid || !algorithm || !algorithm.field) return
     // 宿主若重挂 body 子节点导致画布被移除，补回去（只在失联时做一次 DOM 操作）。
     if (typeof document !== 'undefined' && document.body && !canvas.isConnected) {
       document.body.insertBefore(canvas, document.body.firstChild)
@@ -984,6 +991,7 @@ function createRenderer(canvas, config, onGrid) {
         const x = xPos[cIdx].pos
         const wdt = xPos[cIdx].size
         let v = algorithm.field[r * grid.cols + cIdx]
+        if (!Number.isFinite(v)) v = 0
         if (floyd) {
           v += errorBuf[r * grid.cols + cIdx]
         }
@@ -1045,13 +1053,18 @@ function createRenderer(canvas, config, onGrid) {
     }
   }
 
-  function loop(ts) {
-    if (destroyed) return
+  /** 推进模拟并重绘；由 loop 捕获异常，单帧出错不会再让整条动画链断掉。 */
+  function frame(ts) {
     if (lastTs === 0) lastTs = ts
-    let dt = ts - lastTs
+    const dt = ts - lastTs
     lastTs = ts
     let stepped = false
     if (playing) {
+      // 网格/算法失配（宿主改尺寸、重采样失败等）时自愈重建。
+      if (!algorithm || !algorithm.field || !grid || algorithm.field.length !== grid.cols * grid.rows) {
+        algorithm = makeAlgorithm(grid)
+        dirty = true
+      }
       acc += dt
       const speed = cfg.animation && cfg.animation.speed != null ? cfg.animation.speed : 1
       // 固定步长累计器：每次推进一个 FRAME_MS 步长，乘速度倍率
@@ -1068,7 +1081,67 @@ function createRenderer(canvas, config, onGrid) {
       draw()
       dirty = false
     }
+  }
+
+  /** 重启动画链（rAF 丢失、异常堆积、上下文恢复时调用）。 */
+  function restartLoop(reason) {
+    if (destroyed) return
+    if (rafId != null) cancelAnimationFrame(rafId)
+    rafId = null
+    lastTs = 0
+    acc = 0
+    dirty = true
+    const now = Date.now()
+    if (reason && now - lastRestartLog > 10000) {
+      lastRestartLog = now
+      console.warn('[pixel-wallpaper] 动画帧停摆，已自动重启：' + reason)
+    }
     rafId = requestAnimationFrame(loop)
+  }
+
+  function loop(ts) {
+    if (destroyed) return
+    rafId = null
+    lastFrameAt = typeof performance !== 'undefined' ? performance.now() : Date.now()
+    try {
+      frame(ts)
+      frameErrors = 0
+    } catch (err) {
+      // 记录但不打断：下一帧继续画，连续出错则重建算法实例。
+      frameErrors++
+      if (Date.now() - lastErrorLog > 5000) {
+        lastErrorLog = Date.now()
+        console.warn('[pixel-wallpaper] 渲染帧异常（已跳过，动画继续）：', err)
+      }
+      if (frameErrors >= 3) {
+        frameErrors = 0
+        try { algorithm = makeAlgorithm(grid) } catch { /* 下一帧再试 */ }
+      }
+      dirty = true
+    } finally {
+      if (!destroyed) rafId = requestAnimationFrame(loop)
+    }
+  }
+
+  // 看门狗：rAF 被浏览器/宿主意外掐断时（页面仍在播放状态），1s 内无帧就重启。
+  if (typeof setInterval === 'function') {
+    watchdog = setInterval(() => {
+      if (destroyed || !playing) return
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+      const now = typeof performance !== 'undefined' ? performance.now() : Date.now()
+      if (now - lastFrameAt > 1500) restartLoop('超过 1.5s 未收到动画帧')
+    }, 1000)
+  }
+
+  // 上下文丢失（GPU 复位等）后重新分配 backing store，否则画布会永久停在最后一帧。
+  function onContextLost(e) { if (e && e.preventDefault) e.preventDefault() }
+  function onContextRestored() {
+    try { if (grid) sizeCanvas(grid) } catch { /* 忽略 */ }
+    restartLoop('canvas 上下文已恢复')
+  }
+  if (canvas && typeof canvas.addEventListener === 'function') {
+    canvas.addEventListener('contextlost', onContextLost)
+    canvas.addEventListener('contextrestored', onContextRestored)
   }
 
   function updateConfig(c) {
@@ -1155,7 +1228,17 @@ function createRenderer(canvas, config, onGrid) {
       acc = 0
       draw()
     },
-    destroy: () => { destroyed = true; if (rafId) cancelAnimationFrame(rafId) }
+    destroy: () => {
+      destroyed = true
+      if (watchdog != null) clearInterval(watchdog)
+      watchdog = null
+      if (rafId) cancelAnimationFrame(rafId)
+      rafId = null
+      if (canvas && typeof canvas.removeEventListener === 'function') {
+        canvas.removeEventListener('contextlost', onContextLost)
+        canvas.removeEventListener('contextrestored', onContextRestored)
+      }
+    }
   }
 }
 
@@ -1996,6 +2079,7 @@ module.exports = {
   apply,
   __internals: {
     mulberry32,
+    createRenderer,
     computeAutoGrid,
     computeManualGrid,
     computePositions,
