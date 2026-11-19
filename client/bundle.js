@@ -942,7 +942,7 @@ window.__ModuleLoader__.load({
         return inst
       }
 
-      /** 渲染一帧；脏渲染只画色阶变化的格子。 */
+      /** 渲染一帧；脏渲染只画色阶变化的格子，每帧画完都用底色重铺缝隙。 */
       function draw() {
         if (destroyed || !grid || !algorithm || !algorithm.field) return
         // 宿主若重挂 body 子节点导致画布被移除，补回去（只在失联时做一次 DOM 操作）。
@@ -1032,6 +1032,24 @@ window.__ModuleLoader__.load({
             const r = Math.floor(idx / cols)
             const cIdx = idx - r * cols
             drawShape(cx, xPos[cIdx].pos, yPos[r].pos, xPos[cIdx].size, yPos[r].size, render.shape)
+          }
+        }
+
+        // 每帧画完格子后重铺所有缝隙：格子边缘的抗锯齿会溢进缝隙，整帧和脏帧都会，
+        // 脏帧还会逐帧累积发白。缝隙矩形到相邻格边缘为止。
+        const colGap = grid.gx > 0 && cols > 1
+        const rowGap = grid.gy > 0 && rows > 1
+        if (colGap || rowGap) cx.fillStyle = table.bgColor
+        if (colGap) {
+          for (let c = 0; c < cols - 1; c++) {
+            const start = xPos[c].pos + xPos[c].size
+            cx.fillRect(start, 0, xPos[c + 1].pos - start, grid.Hdev)
+          }
+        }
+        if (rowGap) {
+          for (let r = 0; r < rows - 1; r++) {
+            const start = yPos[r].pos + yPos[r].size
+            cx.fillRect(0, start, grid.Wdev, yPos[r + 1].pos - start)
           }
         }
 
