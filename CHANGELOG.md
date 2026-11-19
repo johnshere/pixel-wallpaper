@@ -25,6 +25,7 @@
 
 ### 变更
 
+- 当前 Alpha 通过 GitHub tag 分发（`github:johnshere/pixel-wallpaper#v0.1.0-alpha.1`）；npm 包待维护者账号恢复后补发。
 - 设置页「算法 / 图片」tab 条默认整条隐藏（图片功能尚未实现），代码与分支保留，改 `SHOW_TABS` 即可恢复。
 - 发布包收窄为运行时文件：不再包含 `client/index.js` 源码、脚本与测试。
 - 默认构建仍生成 E: 自包含目录供本地 link 调试；npm 发布的是仓库根包。
