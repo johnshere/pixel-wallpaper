@@ -27,8 +27,8 @@ const STYLE_ID = 'pixel-wallpaper-style'
 const CANVAS_ID = 'pixel-wallpaper-canvas'
 const CONFIG_EVENT = 'pixel-wallpaper:config'
 
-/** 固定步长累计器：目标 30fps。 */
-const FRAME_MS = 1000 / 30
+/** 固定步长累计器：目标 24fps。 */
+const FRAME_MS = 1000 / 24
 
 /* ────────────────────────────────────────────────────────────────────────
  * 纯函数：随机源（种子 → mulberry32）
@@ -151,6 +151,33 @@ const BAYER4 = [
   15, 7, 13, 5
 ]
 
+/** 配置的量化层数，至少 2 层。 */
+function renderLevels(render) {
+  const n = Math.floor(Number(render.levels))
+  return Number.isFinite(n) && n >= 2 ? n : 8
+}
+
+/**
+ * 亮度 → 色阶，不查调色板、不生成字符串。
+ * 脏渲染只需要比较这个整数；颜色由 buildColorTable 预计算。
+ * @param {number} v 亮度 [0,1]。
+ * @param {object} render 渲染配置。
+ * @param {number} col 列。
+ * @param {number} row 行。
+ * @returns {number} 0..levels-1。
+ */
+function levelAt(v, render, col, row) {
+  const levels = renderLevels(render)
+  let x = clamp((v - render.black / 100) / (render.white / 100 - render.black / 100), 0, 1)
+  x = Math.pow(x, render.gamma)
+  if (render.dither === 'bayer4') {
+    const bayer = BAYER4[((row & 3) << 2) | (col & 3)]
+    x += (bayer / 16 - 0.5) / levels
+  }
+  x = clamp(x, 0, 1)
+  return Math.round(x * (levels - 1))
+}
+
 /**
  * 亮度场 → 像素级量化（DESIGN.md §6），返回每格的 RGB 与量化等级。
  * 只依据 render 配置做亮度映射、gamma、抖动（bayer4 单格子偏移）。
@@ -162,15 +189,9 @@ const BAYER4 = [
  * @returns {[number,number,number]} RGB。
  */
 function shadeToRgb(v, render, col, row) {
-  let x = clamp((v - render.black / 100) / (render.white / 100 - render.black / 100), 0, 1)
-  x = Math.pow(x, render.gamma)
-  if (render.dither === 'bayer4') {
-    const bayer = BAYER4[((row & 3) << 2) | (col & 3)]
-    x += (bayer / 16 - 0.5) / render.levels
-  }
-  x = clamp(x, 0, 1)
-  const level = Math.round(x * (render.levels - 1))
-  return paletteAt(render.palette, level / (render.levels - 1))
+  const levels = renderLevels(render)
+  const level = levelAt(v, render, col, row)
+  return paletteAt(render.palette, level / (levels - 1))
 }
 
 /**
@@ -190,6 +211,24 @@ function fadeToBackground(rgb, bgRgb, transparency) {
     Math.round(bgRgb[1] + (rgb[1] - bgRgb[1]) * k),
     Math.round(bgRgb[2] + (rgb[2] - bgRgb[2]) * k)
   ]
+}
+
+/**
+ * 预计算每个色阶的最终 CSS 颜色（调色板 + 透明度 + 底色）。
+ * 逐格绘制时只做 level 比较和 fillStyle 切换，不再每格 paletteAt/fade。
+ * @param {object} render 渲染配置。
+ * @returns {{colors:string[], bgColor:string}}
+ */
+function buildColorTable(render) {
+  const levels = renderLevels(render)
+  const bgRgb = hexToRgb(render.background)
+  const colors = new Array(levels)
+  for (let level = 0; level < levels; level++) {
+    const rgb = fadeToBackground(paletteAt(render.palette, level / (levels - 1)), bgRgb, render.transparency)
+    colors[level] = `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`
+  }
+  const bg = `rgb(${bgRgb[0]},${bgRgb[1]},${bgRgb[2]})`
+  return { colors, bgColor: bg }
 }
 
 /* ────────────────────────────────────────────────────────────────────────
@@ -842,6 +881,10 @@ function createRenderer(canvas, config, onGrid) {
   let coverageRects = null // 由外部注入
   let playing = cfg.animation && cfg.animation.playing !== false
   let dirty = true // 只有推进过模拟或配置变化才重绘，避免 120Hz 屏空转
+  let cellLevels = null // 上一帧每个格子的色阶；脏渲染只重画变化的格子
+  let fullRedraw = true // 首帧/网格/配置变化时整帧重画
+  let colorCache = null // 缓存 render 配置对应的色阶颜色，避免每帧重建
+  let lastCoverageSignature = null // 影响范围矩形变化时也必须整帧重画
   let lastFrameAt = 0 // 最近一次 rAF 回调时间（看门狗用）
   let frameErrors = 0
   let lastErrorLog = 0
@@ -877,6 +920,13 @@ function createRenderer(canvas, config, onGrid) {
     canvas.style.height = '100%'
   }
 
+  /** 取当前 render 配置对应的色阶颜色表；配置对象变化时重建。 */
+  function colorTableFor(render) {
+    if (colorCache && colorCache.render === render) return colorCache
+    colorCache = { render, ...buildColorTable(render) }
+    return colorCache
+  }
+
   /** 建一支算法实例（seed / 算法 id / 二级参数变化才重建）。 */
   function makeAlgorithm(g) {
     const def = algorithmOf(cfg.algorithm.id) || algorithmOf('boids')
@@ -886,7 +936,7 @@ function createRenderer(canvas, config, onGrid) {
     return inst
   }
 
-  /** 渲染一帧。 */
+  /** 渲染一帧；脏渲染只画色阶变化的格子。 */
   function draw() {
     if (destroyed || !grid || !algorithm || !algorithm.field) return
     // 宿主若重挂 body 子节点导致画布被移除，补回去（只在失联时做一次 DOM 操作）。
@@ -894,61 +944,93 @@ function createRenderer(canvas, config, onGrid) {
       document.body.insertBefore(canvas, document.body.firstChild)
     }
     const render = cfg.render
-    // 画布不透明时先铺底色；透明化后直接画格子
-    const cx = ctx2d
-    const bgRgb = hexToRgb(render.background)
-    cx.clearRect(0, 0, grid.Wdev, grid.Hdev)
-    cx.fillStyle = render.background
-    cx.fillRect(0, 0, grid.Wdev, grid.Hdev)
+    const table = colorTableFor(render)
+    const colors = table.colors
+    const cols = grid.cols
+    const rows = grid.rows
+    const count = cols * rows
+    const floyd = render.dither === 'floyd'
+    let rects = null
+    if (geometryOf.getRects) rects = geometryOf.getRects()
+    const coverageSignature = rects ? JSON.stringify(rects) : ''
+    // floyd 的误差扩散依赖整帧顺序，无法只画变化的格子；其余情况可增量。
+    let full = fullRedraw || !cellLevels || cellLevels.length !== count || floyd
+    // 影响范围矩形变化会 clear 出新的透明区，也可能露出旧透明区：必须整帧重画。
+    if (coverageSignature !== lastCoverageSignature) {
+      full = true
+      lastCoverageSignature = coverageSignature
+    }
+    if (full) {
+      cellLevels = new Uint8Array(count)
+      fullRedraw = false
+    }
 
-    const xPos = computePositions(grid.Wdev, grid.cols, grid.cell)
-    const yPos = computePositions(grid.Hdev, grid.rows, grid.cell)
+    const cx = ctx2d
+    const xPos = computePositions(grid.Wdev, cols, grid.cell)
+    const yPos = computePositions(grid.Hdev, rows, grid.cell)
+    if (full) {
+      cx.clearRect(0, 0, grid.Wdev, grid.Hdev)
+      cx.fillStyle = render.background
+      cx.fillRect(0, 0, grid.Wdev, grid.Hdev)
+    }
 
     // floyd 误差扩散：整帧内传播
-    const floyd = render.dither === 'floyd'
     let errorBuf = null
-    if (floyd) errorBuf = new Float32Array(grid.cols * grid.rows)
+    if (floyd) errorBuf = new Float32Array(count)
 
-    for (let r = 0; r < grid.rows; r++) {
-      const y = yPos[r].pos
-      const hgt = yPos[r].size
-      for (let cIdx = 0; cIdx < grid.cols; cIdx++) {
-        const x = xPos[cIdx].pos
-        const wdt = xPos[cIdx].size
-        let v = algorithm.field[r * grid.cols + cIdx]
+    // 按色阶分桶，整帧只切换 levels 次 fillStyle。
+    const buckets = Array.from({ length: colors.length }, () => [])
+    for (let r = 0; r < rows; r++) {
+      for (let cIdx = 0; cIdx < cols; cIdx++) {
+        const idx = r * cols + cIdx
+        let v = algorithm.field[idx]
         if (!Number.isFinite(v)) v = 0
+        let level
         if (floyd) {
-          v += errorBuf[r * grid.cols + cIdx]
-        }
-        let rgb
-        if (floyd) {
+          v += errorBuf[idx]
           // 计算量化值与误差
           let xl = clamp((v - render.black / 100) / (render.white / 100 - render.black / 100), 0, 1)
           xl = Math.pow(xl, render.gamma)
-          const level = Math.round(xl * (render.levels - 1))
-          rgb = paletteAt(render.palette, level / (render.levels - 1))
+          const levels = colors.length
+          level = Math.round(xl * (levels - 1))
           // 传播误差到邻格（右、下、左下、右下）
-          const quant = level / (render.levels - 1)
+          const quant = level / (levels - 1)
           const err = xl - quant
           const push = (rr, cc, w) => {
-            if (rr >= 0 && rr < grid.rows && cc >= 0 && cc < grid.cols) errorBuf[rr * grid.cols + cc] += err * w
+            if (rr >= 0 && rr < rows && cc >= 0 && cc < cols) errorBuf[rr * cols + cc] += err * w
           }
           push(r, cIdx + 1, 7 / 16)
           push(r + 1, cIdx - 1, 3 / 16)
           push(r + 1, cIdx, 5 / 16)
           push(r + 1, cIdx + 1, 1 / 16)
         } else {
-          rgb = shadeToRgb(v, render, cIdx, r)
+          level = levelAt(v, render, cIdx, r)
         }
-        rgb = fadeToBackground(rgb, bgRgb, render.transparency)
-        cx.fillStyle = `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`
-        drawShape(cx, x, y, wdt, hgt, render.shape)
+        const prev = cellLevels[idx]
+        if (full || prev !== level) {
+          cellLevels[idx] = level
+          buckets[level].push(idx)
+        }
+      }
+    }
+
+    for (let level = 0; level < buckets.length; level++) {
+      const bucket = buckets[level]
+      if (bucket.length === 0) continue
+      const color = colors[level]
+      // 整帧重画时底色已经铺好，和底色完全相同的格子不必再画。
+      if (full && color === table.bgColor) continue
+      cx.fillStyle = color
+      for (let i = 0; i < bucket.length; i++) {
+        const idx = bucket[i]
+        const r = Math.floor(idx / cols)
+        const cIdx = idx - r * cols
+        drawShape(cx, xPos[cIdx].pos, yPos[r].pos, xPos[cIdx].size, yPos[r].size, render.shape)
       }
     }
 
     // 影响范围：关掉的矩形 clearRect 挖成透明
-    if (geometryOf.getRects) {
-      const rects = geometryOf.getRects()
+    if (rects) {
       for (const key of ['header', 'left', 'right', 'input']) {
         if (cfg.coverage && cfg.coverage[key] === false) {
           const rect = rects[key]
@@ -988,6 +1070,7 @@ function createRenderer(canvas, config, onGrid) {
       // 网格/算法失配（宿主改尺寸、重采样失败等）时自愈重建。
       if (!algorithm || !algorithm.field || !grid || algorithm.field.length !== grid.cols * grid.rows) {
         algorithm = makeAlgorithm(grid)
+        fullRedraw = true
         dirty = true
       }
       acc += dt
@@ -1016,6 +1099,7 @@ function createRenderer(canvas, config, onGrid) {
     lastTs = 0
     acc = 0
     dirty = true
+    fullRedraw = true
     const now = Date.now()
     if (reason && now - lastRestartLog > 10000) {
       lastRestartLog = now
@@ -1042,6 +1126,7 @@ function createRenderer(canvas, config, onGrid) {
         frameErrors = 0
         try { algorithm = makeAlgorithm(grid) } catch { /* 下一帧再试 */ }
       }
+      fullRedraw = true
       dirty = true
     } finally {
       if (!destroyed) rafId = requestAnimationFrame(loop)
@@ -1062,6 +1147,7 @@ function createRenderer(canvas, config, onGrid) {
   function onContextLost(e) { if (e && e.preventDefault) e.preventDefault() }
   function onContextRestored() {
     try { if (grid) sizeCanvas(grid) } catch { /* 忽略 */ }
+    fullRedraw = true
     restartLoop('canvas 上下文已恢复')
   }
   if (canvas && typeof canvas.addEventListener === 'function') {
@@ -1105,6 +1191,7 @@ function createRenderer(canvas, config, onGrid) {
       dirty = true
     }
 
+    fullRedraw = true
     draw()
   }
 
@@ -1131,6 +1218,7 @@ function createRenderer(canvas, config, onGrid) {
       playing = Boolean(next)
       lastTs = 0
       acc = 0
+      fullRedraw = true
       draw()
     },
     destroy: () => {
@@ -2080,6 +2168,8 @@ module.exports = {
     computePositions,
     normalizeNumberInput,
     paletteAt,
+    levelAt,
+    buildColorTable,
     shadeToRgb,
     fadeToBackground,
     withDefaults,

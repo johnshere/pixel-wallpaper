@@ -126,8 +126,8 @@ const CONFIG = {
   coverage: { header: true, left: true, right: true, input: true }
 }
 
-/** 跑一帧：取最早排队的回调并推进 16ms。 */
-function runFrame(dt = 16) {
+/** 跑一帧：取最早排队的回调并推进 25ms（> 24fps 的 41.7ms 预算的一半）。 */
+function runFrame(dt = 25) {
   clock += dt
   const first = pendingFrames.entries().next()
   if (first.done) return false

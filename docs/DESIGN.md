@@ -164,7 +164,9 @@ color = paletteAt(level / (levels - 1))
 - **透明度**：`render.transparency`（0–100，默认 90）；格子颜色朝底色混合 `k = 1 - t/100`，视觉等同整层 10% 不透明，画布本身仍不透明。
 - **缝**：不画，直接露出 canvas 底色；底色默认 `#141414`，可配。
 - **抖动**：Bayer 4×4 用 `(bayer/16 - 0.5) / levels` 作偏移；误差扩散用 Floyd–Steinberg，误差只在当前帧内传播。
-- 画布每帧先铺底色，再画格子；被「影响范围」关掉的矩形最后 `clearRect`（透明，露出宿主底层）。
+- 整帧重画（首帧 / 网格 / 渲染配置变化 / floyd）先铺底色，再画格子；其余帧只重画色阶变化的格子，底色与未变格子保留。
+- 每个色阶的最终颜色（调色板 + 透明度 + 底色）预计算为 LUT；和底色完全相同的色阶在整帧重画时跳过。
+- 被「影响范围」关掉的矩形最后 `clearRect`（透明，露出宿主底层）。
 
 ## 7. 六支算法
 
@@ -309,7 +311,7 @@ module.exports = {
 3. `ctx.slots.inject('settings.section', () => ctx.slots.register({ name: 'settings.section', id: 'pixel-wallpaper', order: 96, label: () => '像素背景', inject: () => ({}) }, SettingsSection))`；若 `slots.inject` 不存在则退回 `ctx.effect`。
 4. 监听 `pixel-wallpaper:config` 自定义事件（设置页保存后派发）即时应用；启动时 `GET` 一次配置。
 5. 页面隐藏（`visibilitychange`）暂停动画；恢复时继续。
-6. 动画：`requestAnimationFrame` + 固定步长累加器，目标 30fps；速度倍率作用于模拟步长，不改帧率；暂停时保留最后一帧。
+6. 动画：`requestAnimationFrame` + 固定步长累加器，目标 24fps；速度倍率作用于模拟步长，不改帧率；暂停时保留最后一帧。
 
 ## 13. 构建、安装、自检
 
