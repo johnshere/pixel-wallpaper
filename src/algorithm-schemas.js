@@ -70,7 +70,7 @@ module.exports = {
       "min": 300,
       "max": 3000,
       "step": 100,
-      "default": 1200
+      "default": 500
     },
     {
       "key": "scale",

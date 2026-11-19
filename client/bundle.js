@@ -468,7 +468,7 @@ window.__ModuleLoader__.load({
       label: '流场',
       desc: '粒子沿 fBm 噪声旋度场推进，呈丝状。',
       schema: [
-        { key: 'particles', label: '粒子数量', type: 'range', min: 300, max: 3000, step: 100, default: 1200 },
+        { key: 'particles', label: '粒子数量', type: 'range', min: 300, max: 3000, step: 100, default: 500 },
         { key: 'scale', label: '尺度', type: 'range', min: 0.6, max: 6, step: 0.1, default: 1.8 },
         { key: 'trail', label: '拖尾', type: 'range', min: 0.9, max: 0.995, step: 0.005, default: 0.975 }
       ],
@@ -481,7 +481,7 @@ window.__ModuleLoader__.load({
     /** 流场算法：粒子沿旋度场在降采样网格上推进，累积亮度并衰减。 */
     function createFlow({ cols, rows, seed, params }) {
       const rand = mulberry32(seed)
-      const p = Object.assign({ particles: 1200, scale: 1.8, trail: 0.975 }, params)
+      const p = Object.assign({ particles: 500, scale: 1.8, trail: 0.975 }, params)
       // 超过 240 列先降采样：一个 sim 格放大成 down×down 渲染格，粒子视觉尺寸回到约 10px。
       const down = cols > 240 ? 2 : 1
       const W = Math.ceil(cols / down)
@@ -698,7 +698,10 @@ window.__ModuleLoader__.load({
             const wx = fbm2(s, s, 2, nx, ny, time) * p.warp
             const wy = fbm2(s, s, 2, nx + 10, ny + 10, time) * p.warp
             const v = fbm2(s, s, octaves, nx + wx, ny + wy, time)
-            field[y * cols + x] = clamp((v * 0.5 + 0.5), 0, 1)
+            // 先把 fBm 归一化到 0–1；高阈值 + 三次曲线让主体落暗端，只有峰值接近白。
+            const base = clamp(v * 0.5 + 0.5, 0, 1)
+            const t = clamp((base - 0.6) / 0.32, 0, 1)
+            field[y * cols + x] = t * t * t
           }
         }
       }

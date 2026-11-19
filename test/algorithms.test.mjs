@@ -49,6 +49,24 @@ test('噪声场：换种子会换图案', () => {
   assert.ok(diff > 1, `不同种子的噪声场应明显不同（差值 ${diff}）`)
 })
 
+test('噪声场：默认映射为主体暗底、亮部少', () => {
+  const def = algorithmOf('noise')
+  const inst = def.create({ cols: 331, rows: 186, seed: 1337, params: {} })
+  let dark = 0
+  let bright = 0
+  for (let i = 0; i < inst.field.length; i++) {
+    const v = inst.field[i]
+    assert.ok(Number.isFinite(v), `field[${i}] 不应是 ${v}`)
+    if (v < 0.08) dark++
+    if (v > 0.5) bright++
+  }
+  const total = inst.field.length
+  const darkRatio = dark / total
+  const brightRatio = bright / total
+  assert.ok(darkRatio > 0.3, `暗格占比 ${darkRatio.toFixed(3)} 应大于 0.3`)
+  assert.ok(brightRatio < 0.15, `亮格占比 ${brightRatio.toFixed(3)} 应小于 0.15`)
+})
+
 test('鸟群：默认 80 只、硬上限 200，三个规则权重都可由二级参数覆盖', () => {
   const def = algorithmOf('boids')
   const byKey = new Map(def.schema.map((f) => [f.key, f]))
@@ -77,6 +95,7 @@ test('鸟群：agents=999 实际只创建 200 只，且每只鸟速度不同', (
 test('流场：降采样后粒子覆盖 2×2 格，不是单格小点', () => {
   const def = algorithmOf('flow')
   const particles = def.schema.find((f) => f.key === 'particles').default
+  assert.equal(particles, 500, '流场粒子默认 500')
   const cols = 331
   const rows = 186
   const fresh = def.create({ cols, rows, seed: 7, params: {} })
