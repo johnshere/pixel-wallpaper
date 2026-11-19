@@ -22,16 +22,13 @@ const SHAPES = ['square', 'rounded', 'dot']
 /** 可选的抖动方式。 */
 const DITHERS = ['none', 'bayer4', 'floyd']
 
-/** 网格模式。 */
-const GRID_MODES = ['auto', 'manual']
-
 /**
  * 默认配置（首次安装值，与 DESIGN.md §8 完全一致）。
  */
 const DEFAULT_CONFIG = Object.freeze({
-  version: 3,
+  version: 4,
   coverage: { header: true, left: true, right: true, input: false },
-  grid: { mode: 'auto', cellWidth: null, gap: null },
+  grid: { cellWidth: 5, gap: 0.8 },
   render: {
     shape: 'square',
     levels: 8,
@@ -52,8 +49,8 @@ const DEFAULT_CONFIG = Object.freeze({
  * 与 DESIGN.md §8 的校验表一致。
  */
 const LIMITS = Object.freeze({
-  cellWidth: [2, 40],
-  gap: [0, 20],
+  cellWidth: [3, 20],
+  gap: [0, 8],
   levels: [2, 16],
   gamma: [0.4, 2.0],
   black: [0, 30],
@@ -132,23 +129,16 @@ function sanitizePalette(value) {
   return out
 }
 
-/** 校验并归一化网格配置。 */
+/**
+ * 校验并归一化网格配置。
+ * null / undefined / 非有限数一律回退默认 5 / 0.8（旧版 auto 的 null 也回退）。
+ */
 function sanitizeGrid(value) {
   const def = DEFAULT_CONFIG.grid
   const src = value && typeof value === 'object' ? value : {}
-  const mode = GRID_MODES.includes(src.mode) ? src.mode : def.mode
-  const cellWidth = src.cellWidth === null || src.cellWidth === undefined ? null : clampNumber(src.cellWidth, 'cellWidth', def.cellWidth, false)
-  const gap = src.gap === null || src.gap === undefined ? null : clampNumber(src.gap, 'gap', def.gap, false)
-  // 自动模式必须为空；手动模式无效值回退默认。
-  const out = { mode }
-  if (mode === 'auto') {
-    out.cellWidth = null
-    out.gap = null
-  } else {
-    out.cellWidth = cellWidth === null ? 9 : cellWidth
-    out.gap = gap === null ? 1 : gap
-  }
-  return out
+  const cellWidth = src.cellWidth == null ? def.cellWidth : clampNumber(src.cellWidth, 'cellWidth', def.cellWidth, false)
+  const gap = src.gap == null ? def.gap : clampNumber(src.gap, 'gap', def.gap, false)
+  return { cellWidth, gap }
 }
 
 /** 按某算法 schema 夹参数；未知键丢弃。 */
@@ -253,7 +243,7 @@ function sanitize(input) {
     render.background = DEFAULT_CONFIG.render.background
   }
   return {
-    version: 3,
+    version: 4,
     coverage: sanitizeCoverage(src.coverage),
     grid: sanitizeGrid(src.grid),
     render,
@@ -315,7 +305,6 @@ module.exports = {
   LIMITS,
   SHAPES,
   DITHERS,
-  GRID_MODES,
   dshHome,
   configFile,
   normalizeHex,

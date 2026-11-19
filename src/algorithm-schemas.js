@@ -12,9 +12,9 @@ module.exports = {
       "label": "智能体数量",
       "type": "range",
       "min": 60,
-      "max": 600,
+      "max": 200,
       "step": 10,
-      "default": 150
+      "default": 80
     },
     {
       "key": "separation",

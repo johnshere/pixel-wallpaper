@@ -1,12 +1,11 @@
 /**
- * 网格几何纯函数单元测试（DESIGN.md §13.3 列出的视口与手动档位）。
+ * 网格几何纯函数单元测试（DESIGN.md §13.3 列出的视口与固定格宽档位）。
  *
- * 重点钉死五件事：
- * 1. 自动模式（1920×1080@1、3840×2160@2、1280×720@1.5、600×800@1）首格贴 0、末格贴边；
- * 2. 窄窗保护：N0 从 140 往下压，不崩；
- * 3. 手动 9/1 与手动 12/0（无缝），首格 0、末格贴边、无缝摊宽；
- * 4. 两向间隔差在阈值内（|gx-gy| <= max(0.5, 0.2*min(gx,gy))）；
- * 5. 亚像素定位：x_i = i*(W-c)/(n-1)，相邻缝恒定、不被整数栅格量化。
+ * 重点钉死四件事：
+ * 1. 1920×1080@1 默认 5px / 0.8px → 331×186、cell 5；2560/3440 宽度的 sanity 数值；
+ * 2. dpr 1.25 / 1.5 下 cell/dpr 仍等于配置的 CSS 格宽（不取整）；
+ * 3. 定位固定格宽：首格 0、末格贴边、相邻缝恒定；gap=0 时余量自然摊成亚像素缝；
+ * 4. count=1 边界：size = min(cell, extent)。
  */
 
 import assert from 'node:assert/strict'
@@ -29,7 +28,7 @@ globalThis.window = {
 require('../client/bundle.js')
 
 const bundle = loaded.get('dsh-pixel-wallpaper')
-const { computeAutoGrid, computeManualGrid, computePositions } = bundle.__internals
+const { computeManualGrid, computePositions } = bundle.__internals
 
 /** 断言首格贴 0、末格贴边。 */
 function assertEdges(extent, positions) {
@@ -38,122 +37,78 @@ function assertEdges(extent, positions) {
   assert.ok(Math.abs(last.pos + last.size - extent) < 1e-6, '末格右缘应贴边')
 }
 
-/** 断言两向间隔差在阈值内。 */
-function assertGapNear(a, b) {
-  const thresh = Math.max(0.5, 0.2 * Math.min(a, b))
-  assert.ok(Math.abs(a - b) <= thresh + 1e-6, `间隔差 |${a}-${b}|=${Math.abs(a - b)} 应 <= ${thresh}`)
-}
-
-test('自动 1920×1080@1：N0=250，首末格贴边，间隔接近', () => {
-  const g = computeAutoGrid(1920, 1080, 1)
-  assert.equal(g.cols, 250, '无窄窗保护时列数应保持 250')
-  assert.ok(g.rows > 0, '应有行数')
-  const xPos = computePositions(1920, g.cols, g.cell, g.gx, false, 0)
-  const yPos = computePositions(1080, g.rows, g.cell, g.gy, false, 0)
-  assertEdges(1920, xPos)
-  assertEdges(1080, yPos)
-  assertGapNear(g.gx, g.gy)
+test('默认 5px / 0.8px @1920×1080@1：331 × 186、cell 5', () => {
+  const g = computeManualGrid(1920, 1080, 1, 5, 0.8)
+  assert.equal(g.cols, 331)
+  assert.equal(g.rows, 186)
+  assert.equal(g.cell, 5)
+  assert.ok(g.gx > 0 && g.gy > 0, '实际缝应为正')
+  assertEdges(1920, computePositions(1920, g.cols, g.cell))
+  assertEdges(1080, computePositions(1080, g.rows, g.cell))
 })
 
-test('自动 3840×2160@2：物理格子尺寸不随缩放漂移', () => {
-  const g = computeAutoGrid(3840, 2160, 2)
-  assert.equal(g.cols, 250)
-  assert.ok(g.rows > 0)
-  const xPos = computePositions(3840, g.cols, g.cell, g.gx, false, 0)
-  const yPos = computePositions(2160, g.rows, g.cell, g.gy, false, 0)
-  assertEdges(3840, xPos)
-  assertEdges(2160, yPos)
-  assertGapNear(g.gx, g.gy)
+test('sanity：2560×1440 → 441 × 248，3440×1440 → 593 × 248', () => {
+  const wqhd = computeManualGrid(2560, 1440, 1, 5, 0.8)
+  assert.equal(wqhd.cols, 441)
+  assert.equal(wqhd.rows, 248)
+  const uw = computeManualGrid(3440, 1440, 1, 5, 0.8)
+  assert.equal(uw.cols, 593)
+  assert.equal(uw.rows, 248)
 })
 
-test('自动 1280×720@1.5：非整数 dpr 也能贴边', () => {
-  const g = computeAutoGrid(1280, 720, 1.5)
-  assert.ok(g.cols >= 8, '窄窗下列数至少 8')
-  const xPos = computePositions(1280, g.cols, g.cell, g.gx, false, 0)
-  const yPos = computePositions(720, g.rows, g.cell, g.gy, false, 0)
-  assertEdges(1280, xPos)
-  assertEdges(720, yPos)
-  assertGapNear(g.gx, g.gy)
-})
-
-test('自动 600×800@1（窄窗保护）：N0 从 250 压缩', () => {
-  const g = computeAutoGrid(600, 800, 1)
-  // 600/250 = 2.4 < 5*1，触发窄窗保护
-  assert.ok(g.cols < 250, '窄窗应压缩列数')
-  assert.ok(g.cols >= 8, '列数至少 8')
-  const xPos = computePositions(600, g.cols, g.cell, g.gx, false, 0)
-  const yPos = computePositions(800, g.rows, g.cell, g.gy, false, 0)
-  assertEdges(600, xPos)
-  assertEdges(800, yPos)
-  assertGapNear(g.gx, g.gy)
-})
-
-test('手动 9/1：硬算不缩放，首末格贴边', () => {
-  const g = computeManualGrid(1920, 1080, 1, 9, 1)
-  assert.ok(g.cols > 1 && g.rows > 1)
-  const xPos = computePositions(1920, g.cols, g.cell, g.gx, g.seamless, g.spreadX || 0)
-  const yPos = computePositions(1080, g.rows, g.cell, g.gy, g.seamless, g.spreadY || 0)
-  assertEdges(1920, xPos)
-  assertEdges(1080, yPos)
-  assertGapNear(g.gx, g.gy)
-})
-
-test('手动 12/0（无缝）：余量摊进单元宽，首末格贴边', () => {
-  const g = computeManualGrid(1920, 1080, 1, 12, 0)
-  assert.equal(g.seamless, true, 'g=0 应无缝')
-  assert.equal(g.gx, 0, '无缝 gx=0')
-  assert.equal(g.gy, 0, '无缝 gy=0')
-  const xPos = computePositions(1920, g.cols, g.cell, g.gx, true, g.spreadX || 0)
-  const yPos = computePositions(1080, g.rows, g.cell, g.gy, true, g.spreadY || 0)
-  assertEdges(1920, xPos)
-  assertEdges(1080, yPos)
-  // 无缝摊宽：每格宽为 extent/n（浮点），格与格严丝合缝
-  assert.ok(xPos.every((p) => Math.abs(p.size - 1920 / g.cols) < 1e-9 || p === xPos[xPos.length - 1]), '无缝格宽应均摊')
-})
-
-test('亚像素定位：相邻缝恒等，不再 0/1 交替', () => {
-  for (const [W, H, dpr] of [[1920, 1080, 1], [1576, 908, 1.25], [3840, 2160, 2]]) {
-    const ag = computeAutoGrid(W, H, dpr)
-    const n = ag.cols
-    const c = ag.cell
-    const pos = computePositions(W, n, c, ag.gx, false, 0)
-    const expect = (W - n * c) / (n - 1)
-    const gaps = []
-    for (let i = 1; i < n; i++) {
-      gaps.push(pos[i].pos - (pos[i - 1].pos + pos[i - 1].size))
-    }
-    for (const g of gaps) {
-      assert.ok(Math.abs(g - expect) < 1e-9, `缝应恒为 ${expect}，实际 ${g}`)
-    }
-    assert.ok(expect > 0, '缝必须为正')
+test('dpr 1.25 / 1.5：cell 不取整，cell/dpr 仍等于配置的 5 CSS px', () => {
+  for (const dpr of [1.25, 1.5]) {
+    const g = computeManualGrid(1920, 1080, dpr, 5, 0.8)
+    assert.equal(g.cell, 5 * dpr, `dpr=${dpr} 时 cell 应保留亚像素`)
+    assert.equal(g.cell / dpr, 5)
+    assertEdges(1920, computePositions(1920, g.cols, g.cell))
+    assertEdges(1080, computePositions(1080, g.rows, g.cell))
   }
 })
 
-test('无缝定位：余量大于格数时仍铺满、无重叠', () => {
-  // 100 宽、3 格、基准 31：余量 7 > 3，旧实现只能摊 3px，末格贴不到边。
-  const pos = computePositions(100, 3, 31, 0, true, 7)
-  assertEdges(100, pos)
+test('固定格宽定位：相邻缝恒等，不被整数栅格量化', () => {
+  const g = computeManualGrid(1920, 1080, 1, 5, 0.8)
+  const pos = computePositions(1920, g.cols, g.cell)
+  const expect = (1920 - g.cols * g.cell) / (g.cols - 1)
   for (let i = 1; i < pos.length; i++) {
-    assert.ok(Math.abs(pos[i].pos - (pos[i - 1].pos + pos[i - 1].size)) < 1e-9, '无缝时不应有重叠或空洞')
+    const gap = pos[i].pos - (pos[i - 1].pos + pos[i - 1].size)
+    assert.ok(Math.abs(gap - expect) < 1e-9, `缝应恒为 ${expect}，实际 ${gap}`)
+    assert.equal(pos[i].size, g.cell, '每格宽应恒为 cell')
   }
-  assert.ok(pos.every((p) => p.size >= 31 && p.size <= 35), '每格宽应在基准附近')
 })
 
-test('手动大格窄窗：n*c 不超视口、不重叠', () => {
+test('gap=0：整除时无缝，不整除时余量摊成亚像素缝', () => {
+  const exact = computeManualGrid(1920, 1080, 1, 5, 0)
+  assert.equal(exact.cols, 384)
+  assert.equal(exact.gx, 0)
+  const exactPos = computePositions(1920, exact.cols, exact.cell)
+  assertEdges(1920, exactPos)
+  for (let i = 1; i < exactPos.length; i++) {
+    assert.ok(Math.abs(exactPos[i].pos - (exactPos[i - 1].pos + exactPos[i - 1].size)) < 1e-9, '整除时应无缝')
+  }
+
+  const odd = computeManualGrid(1000, 700, 1, 7, 0)
+  assert.equal(odd.cols, 142, 'round(1000/7)=143 会越界，应递减到 142')
+  assert.ok(odd.gx > 0, '余量应摊成亚像素缝')
+  const oddPos = computePositions(1000, odd.cols, odd.cell)
+  assertEdges(1000, oddPos)
+  for (let i = 1; i < oddPos.length; i++) {
+    assert.ok(oddPos[i].pos >= oddPos[i - 1].pos + oddPos[i - 1].size, '格子不应重叠')
+  }
+})
+
+test('count=1 边界：size = min(cell, extent)', () => {
+  assert.deepEqual(computePositions(100, 1, 5), [{ pos: 0, size: 5 }])
+  assert.deepEqual(computePositions(3, 1, 5), [{ pos: 0, size: 3 }])
+})
+
+test('大格窄窗：不重叠、不崩', () => {
   const g = computeManualGrid(70, 70, 1, 40, 1)
   assert.ok(g.cols >= 1 && g.rows >= 1)
-  const xPos = computePositions(70, g.cols, g.cell, g.gx, g.seamless, g.spreadX || 0)
-  assertEdges(70, xPos)
+  const xPos = computePositions(70, g.cols, g.cell)
+  if (g.cols > 1) assertEdges(70, xPos)
+  else assert.equal(xPos[0].size, Math.min(g.cell, 70))
   for (let i = 1; i < xPos.length; i++) {
     assert.ok(xPos[i].pos >= xPos[i - 1].pos + xPos[i - 1].size, '格子不应重叠')
-  }
-})
-
-test('极端窄窗：不崩、列数下限 8（符合窄窗保护）, 兜底不减到 0', () => {
-  for (const [W, H, dpr] of [[100, 100, 1], [60, 60, 1], [50, 200, 2]]) {
-    const g = computeAutoGrid(W, H, dpr)
-    assert.ok(g.cols >= 1, `cols 至少 1 (${W}x${H})`)
-    assert.ok(g.rows >= 1, `rows 至少 1 (${W}x${H})`)
-    assert.ok(Number.isFinite(g.gx) && Number.isFinite(g.gy))
   }
 })

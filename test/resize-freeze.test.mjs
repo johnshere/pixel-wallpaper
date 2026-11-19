@@ -69,12 +69,12 @@ function makeCanvas() {
 }
 
 const baseConfig = () => ({
-  version: 3,
+  version: 4,
   coverage: { header: true, left: true, right: true, input: true },
-  grid: { mode: 'auto', cellWidth: null, gap: null },
+  grid: { cellWidth: 5, gap: 0.8 },
   render: { shape: 'square', levels: 8, palette: ['#1b1b1b', '#c9c9c9'], gamma: 1, black: 0, white: 100, dither: 'none', background: '#141414', transparency: 0 },
   animation: { playing: true, speed: 1 },
-  algorithm: { id: 'boids', seed: 1337, params: { agents: 150 } }
+  algorithm: { id: 'boids', seed: 1337, params: { agents: 80 } }
 })
 
 test('窗口尺寸变化后画面仍在更新（绘制场不是静止快照）', () => {

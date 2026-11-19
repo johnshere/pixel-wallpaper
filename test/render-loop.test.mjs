@@ -109,7 +109,7 @@ function makeCanvas() {
 }
 
 const CONFIG = {
-  grid: { mode: 'auto' },
+  grid: { cellWidth: 5, gap: 0.8 },
   render: {
     palette: ['#1b1b1b', '#c9c9c9'],
     background: '#141414',

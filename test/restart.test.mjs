@@ -50,7 +50,7 @@ test('二级参数变化重建实例，相同配置不重建', () => {
   const canvas = { width: 0, height: 0, style: {}, getContext: () => fakeCtx, addEventListener: () => {}, removeEventListener: () => {} }
   const base = {
     animation: { playing: true, speed: 1 },
-    grid: { mode: 'auto', cellWidth: null, gap: null },
+    grid: { cellWidth: 5, gap: 0.8 },
     render: {
       shape: 'square',
       levels: 8,

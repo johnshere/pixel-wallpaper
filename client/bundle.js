@@ -66,159 +66,47 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * 自动模式网格（DESIGN.md §5.2）。
-     * 入参为设备像素视口，返回 { cols:n, rows:m, cell:c, gx, gy }。
-     * 全部整数设备像素；c 为正方形边长。
-     * @param {number} Wdev 设备像素宽。
-     * @param {number} Hdev 设备像素高。
-     * @param {number} dpr 设备像素比。
-     * @returns {{cols:number, rows:number, cell:number, gx:number, gy:number}}
-     */
-    function computeAutoGrid(Wdev, Hdev, dpr) {
-      let N0 = 250
-      if (Wdev / N0 < 5 * dpr) {
-        N0 = Math.max(8, Math.floor(Wdev / (5 * dpr)))
-      }
-      const slot = Wdev / N0
-      const g0 = Math.max(1, Math.round(slot * 0.12))
-      // 格宽不取整：取整会让缝在 0/1 设备像素之间跳，出现「有的格有缝、有的没有」。
-      const c = Math.max(2, slot - g0)
-
-      let n = N0
-      let gx = n > 1 ? (Wdev - n * c) / (n - 1) : 0
-      // 高度没有目标行数：用算出的横向缝估行数
-      let m = Math.max(1, Math.round(Hdev / (c + gx)))
-      let gy = m > 1 ? (Hdev - m * c) / (m - 1) : gx
-
-      // 两向间隔阈值：让 gx/gy 尽量接近
-      const nearEnough = (a, b) => Math.abs(a - b) <= Math.max(0.5, 0.2 * Math.min(a, b))
-
-      // 先在 m-1/m/m+1 中重选让两向间隔接近
-      if (!nearEnough(gx, gy)) {
-        let bestM = m
-        let bestDiff = Math.abs(gx - gy)
-        for (const dm of [-1, 0, 1]) {
-          const mm = m + dm
-          if (mm < 1) continue
-          const gyy = mm > 1 ? (Hdev - mm * c) / (mm - 1) : gx
-          if (gyy < 0.5) continue
-          // 校验格子不超出视口
-          const need = mm * c + (mm - 1) * gyy
-          if (need > Hdev + 1) continue
-          const diff = Math.abs(gx - gyy)
-          if (diff < bestDiff) {
-            bestDiff = diff
-            bestM = mm
-          }
-        }
-        m = bestM
-        gy = m > 1 ? (Hdev - m * c) / (m - 1) : gx
-      }
-
-      // 兜底：间隔过小则减列/减行重解
-      if (gx < 0.5 && n > 1) {
-        n -= 1
-        gx = n > 1 ? (Wdev - n * c) / (n - 1) : 0
-      }
-      if (gy < 0.5 && m > 1) {
-        m -= 1
-        gy = m > 1 ? (Hdev - m * c) / (m - 1) : (gx >= 0.5 ? gx : 0)
-      }
-
-      return { cols: n, rows: m, cell: c, gx, gy }
-    }
-
-    /**
-     * 手动模式网格（DESIGN.md §5.3）。
+     * 固定 CSS 像素格宽网格（DESIGN.md §5.2）。
+     * 设备像素空间计算，但 cell / gap 由 CSS px 乘 dpr 得到，**不取整**：
+     * 5px@1.25 = 6.25、@1.5 = 7.5 都保留，保证不同缩放下单元格 CSS 尺寸不变。
      * @param {number} Wdev 设备像素宽。
      * @param {number} Hdev 设备像素高。
      * @param {number} dpr 设备像素比。
      * @param {number} cellCss 单元格宽 CSS px。
      * @param {number} gapCss 间隔 CSS px。
-     * @returns {{cols:number, rows:number, cell:number, gx:number, gy:number, seamless:boolean}}
+     * @returns {{cols:number, rows:number, cell:number, gx:number, gy:number}}
      */
     function computeManualGrid(Wdev, Hdev, dpr, cellCss, gapCss) {
-      const c = Math.max(2, Math.round(cellCss * dpr))
-      const g = Math.max(0, Math.round(gapCss * dpr))
+      const cell = cellCss * dpr
+      const gap = gapCss * dpr
+      if (!(cell > 0)) return { cols: 1, rows: 1, cell: 0, gx: 0, gy: 0 }
 
-      if (c <= 0) return { cols: 1, rows: 1, cell: c, gx: 0, gy: 0, seamless: true }
+      const slot = cell + gap
+      let n = Math.max(1, Math.round(Wdev / slot))
+      let m = Math.max(1, Math.round(Hdev / slot))
+      // round 可能让格子越过视口（尤其窗口刚好在半个步距附近）：逐个递减到放得下。
+      while (n > 1 && n * cell + (n - 1) * gap > Wdev) n -= 1
+      while (m > 1 && m * cell + (m - 1) * gap > Hdev) m -= 1
 
-      if (g === 0) {
-        // 无缝：把余量摊进单元格宽度（第 i 格宽 c 或 c+1）
-        const n = Math.max(1, Math.floor(Wdev / c))
-        const m = Math.max(1, Math.floor(Hdev / c))
-        return { cols: n, rows: m, cell: c, gx: 0, gy: 0, seamless: true, spreadX: Wdev - n * c, spreadY: Hdev - m * c }
-      }
-
-      let n = Math.max(1, Math.round(Wdev / (c + g)))
-      let m = Math.max(1, Math.round(Hdev / (c + g)))
-      // 防止 n*c 超过视口：那会让首格与次格重叠，缝也算成负数。
-      while (n > 1 && n * c > Wdev) n -= 1
-      while (m > 1 && m * c > Hdev) m -= 1
-      let gx = n > 1 ? (Wdev - n * c) / (n - 1) : 0
-      let gy = m > 1 ? (Hdev - m * c) / (m - 1) : 0
-
-      // 两向间隔阈值；必要时 n、m 各 ±1 重解
-      const nearEnough = (a, b) => Math.abs(a - b) <= Math.max(0.5, 0.2 * Math.min(a, b))
-      if (!nearEnough(gx, gy)) {
-        let bestN = n
-        let bestM = m
-        let bestDiff = Math.abs(gx - gy)
-        for (const dn of [-1, 0, 1]) {
-          for (const dm of [-1, 0, 1]) {
-            const nn = Math.max(1, n + dn)
-            const mm = Math.max(1, m + dm)
-            const gxx = nn > 1 ? (Wdev - nn * c) / (nn - 1) : 0
-            const gyy = mm > 1 ? (Hdev - mm * c) / (mm - 1) : 0
-            if (gyy < 0.5) continue
-            if (nn * c + (nn - 1) * gxx > Wdev + 1) continue
-            if (mm * c + (mm - 1) * gyy > Hdev + 1) continue
-            const diff = Math.abs(gxx - gyy)
-            if (diff < bestDiff) {
-              bestDiff = diff
-              bestN = nn
-              bestM = mm
-            }
-          }
-        }
-        n = bestN
-        m = bestM
-        gx = n > 1 ? (Wdev - n * c) / (n - 1) : 0
-        gy = m > 1 ? (Hdev - m * c) / (m - 1) : 0
-      }
-
-      return { cols: n, rows: m, cell: c, gx, gy, seamless: false }
+      const gx = n > 1 ? (Wdev - n * cell) / (n - 1) : 0
+      const gy = m > 1 ? (Hdev - m * cell) / (m - 1) : 0
+      return { cols: n, rows: m, cell, gx, gy }
     }
 
     /**
-     * 整数定位（DESIGN.md §5.4）：给定边、格数、边长、缝，返回每格起点。
-     * 首格贴 0、末格贴边；相邻缝在 g ± 1 内浮动。
+     * 亚像素定位（DESIGN.md §5.4）：给定边、格数、边长，返回每格起点。
+     * 首格贴 0、末格贴边；每格宽恒为 cell，余量自然摊成亚像素缝。
      * @param {number} extent 总长（设备像素）。
      * @param {number} count 格数。
      * @param {number} cell 边长。
-     * @param {number} gap 缝（约数）。
-     * @param {boolean} seamless 是否把余量摊宽。
-     * @param {number} spread 余量（无缝时）。
      * @returns {Array<{pos:number, size:number}>}
      */
-    function computePositions(extent, count, cell, gap, seamless, spread) {
+    function computePositions(extent, count, cell) {
       const out = []
       if (count <= 1) {
-        out.push({ pos: 0, size: extent })
+        out.push({ pos: 0, size: Math.min(cell, extent) })
         return out
       }
-      if (seamless) {
-        // 无缝：把整段长度平均摊给所有格（浮点），格与格严丝合缝。
-        const step = extent / count
-        for (let i = 0; i < count; i++) {
-          const pos = i * step
-          const end = i === count - 1 ? extent : (i + 1) * step
-          out.push({ pos, size: Math.max(0, end - pos) })
-        }
-        return out
-      }
-      // 亚像素定位：pos_i = i*(extent-cell)/(count-1)，首格贴 0、末格贴边，
-      // 相邻缝恒等于 (extent-count*cell)/(count-1)，不再被整数栅格量化成 0/1 交替。
       const step = (extent - cell) / (count - 1)
       for (let i = 0; i < count; i++) {
         out.push({ pos: i * step, size: cell })
@@ -378,7 +266,7 @@ window.__ModuleLoader__.load({
       label: '鸟群',
       desc: '分离/对齐/聚合的智能体，拖尾留下纹理。',
       schema: [
-        { key: 'agents', label: '智能体数量', type: 'range', min: 60, max: 600, step: 10, default: 150 },
+        { key: 'agents', label: '智能体数量', type: 'range', min: 60, max: 200, step: 10, default: 80 },
         { key: 'separation', label: '分离权重', type: 'range', min: 0, max: 4, step: 0.1, default: 1.6 },
         { key: 'alignment', label: '对齐权重', type: 'range', min: 0, max: 2, step: 0.05, default: 0.9 },
         { key: 'cohesion', label: '聚合权重', type: 'range', min: 0, max: 3, step: 0.1, default: 0.7 },
@@ -388,20 +276,27 @@ window.__ModuleLoader__.load({
       create: createBoids
     })
 
+    /** 鸟群速度缩放：1.0 的 speed 对应 15 格/秒（原先 1.2 相当于 1.2 格/秒，太慢）。 */
+    const SPEED_SCALE = 15
+
     /** 鸟群算法：分离/对齐/聚合 + 环形边界 + 空间哈希。 */
     function createBoids({ cols, rows, seed, params }) {
       const rand = mulberry32(seed)
-      const p = Object.assign({ agents: 150, speed: 1.2, trail: 0.98, separation: 1.6, alignment: 0.9, cohesion: 0.7 }, params)
+      const p = Object.assign({ agents: 80, speed: 1.2, trail: 0.98, separation: 1.6, alignment: 0.9, cohesion: 0.7 }, params)
       const field = new Float32Array(cols * rows)
-      const N = Math.round(p.agents)
+      // 硬上限 200：参数层已 clamp，这里再兜一层，避免旧配置或直接调用撑爆内存。
+      const N = Math.min(200, Math.max(1, Math.round(p.agents)))
       const pos = new Float32Array(N * 2)
       const vel = new Float32Array(N * 2)
+      // 每只鸟的速度在基准值上下 ±40% 浮动（0.6–1.4），可互相追赶/逃离。
+      const speeds = new Float32Array(N)
       for (let i = 0; i < N; i++) {
+        const ang = rand() * Math.PI * 2
+        speeds[i] = p.speed * SPEED_SCALE * (0.6 + rand() * 0.8)
         pos[i * 2] = rand() * cols
         pos[i * 2 + 1] = rand() * rows
-        const ang = rand() * Math.PI * 2
-        vel[i * 2] = Math.cos(ang) * p.speed
-        vel[i * 2 + 1] = Math.sin(ang) * p.speed
+        vel[i * 2] = Math.cos(ang) * speeds[i]
+        vel[i * 2 + 1] = Math.sin(ang) * speeds[i]
       }
 
       // 空间哈希邻域半径 12 格
@@ -456,14 +351,16 @@ window.__ModuleLoader__.load({
         for (let i = 0; i < N; i++) {
           const ix = pos[i * 2]
           const iy = pos[i * 2 + 1]
+          // 每只鸟只取一次邻居，分离/对齐/聚合共用同一组 d2 <= R*R 的邻居。
+          const neighbors = neighborsOf(i)
           let sx = 0
           let sy = 0
           let ax = 0
           let ay = 0
-          let cx = 0
-          let cy = 0
+          let avx = 0
+          let avy = 0
           let cnt = 0
-          for (const j of neighborsOf(i)) {
+          for (const j of neighbors) {
             const jx = pos[j * 2]
             const jy = pos[j * 2 + 1]
             let dx = ix - jx
@@ -474,46 +371,30 @@ window.__ModuleLoader__.load({
             if (dy > rows / 2) dy -= rows
             if (dy < -rows / 2) dy += rows
             const d2 = dx * dx + dy * dy
-            if (d2 < R * R && d2 > 0) {
+            if (d2 <= R * R && d2 > 0) {
               const d = Math.sqrt(d2)
               sx += dx / d
               sy += dy / d
-              ax += jx
-              ay += jy
+              // 聚合：朝邻居平均位置（wrapped 方向）
+              ax -= dx
+              ay -= dy
+              avx += vel[j * 2]
+              avy += vel[j * 2 + 1]
               cnt++
             }
-            cx += dx
-            cy += dy
-          }
-          const n = neighborsOf(i).length
-          if (n > 0) {
-            ax = (ax + (n - cnt) * ix) / n
-            ay = (ay + (n - cnt) * iy) / n
-            cx /= n
-            cy /= n
           }
           let vx = vel[i * 2]
           let vy = vel[i * 2 + 1]
-          // 三个权重可由二级参数覆盖：分离 / 聚合（对齐在下面单独计算）
-          vx += sx * p.separation + (ax - ix) * p.cohesion
-          vy += sy * p.separation + (ay - iy) * p.cohesion
-          // 对齐：向邻域平均速度靠拢
-          let avgVX = 0
-          let avgVY = 0
-          let vcnt = 0
-          for (const j of neighborsOf(i)) {
-            avgVX += vel[j * 2]
-            avgVY += vel[j * 2 + 1]
-            vcnt++
-          }
-          if (vcnt > 0) {
-            avgVX /= vcnt
-            avgVY /= vcnt
-            vx += (avgVX - vx) * p.alignment
-            vy += (avgVY - vy) * p.alignment
+          if (cnt > 0) {
+            // 分离 / 聚合（对齐在下面合并）
+            vx += sx * p.separation + (ax / cnt) * p.cohesion
+            vy += sy * p.separation + (ay / cnt) * p.cohesion
+            // 对齐：向邻域平均速度靠拢
+            vx += (avx / cnt - vx) * p.alignment
+            vy += (avy / cnt - vy) * p.alignment
           }
           const len = Math.sqrt(vx * vx + vy * vy) || 1
-          const spd = p.speed
+          const spd = speeds[i]
           vx = (vx / len) * spd
           vy = (vy / len) * spd
           vel[i * 2] = vx
@@ -539,7 +420,7 @@ window.__ModuleLoader__.load({
       for (let i = 0; i < field.length; i++) if (field[i] > max) max = field[i]
       if (max > 0) for (let i = 0; i < field.length; i++) field[i] /= max
 
-      return { field, step }
+      return { field, step, speeds }
     }
 
     /* —— 算法：flow（流场） —— */
@@ -896,7 +777,7 @@ window.__ModuleLoader__.load({
      * 构建并启动渲染器。
      * @param {HTMLCanvasElement} canvas 画布。
      * @param {object} config 当前配置。
-     * @param {(arg0: {cols:number, rows:number, cell:number, gx:number, gy:number, mode:string}) => void} onGrid 网格变化回调。
+     * @param {(arg0: {cols:number, rows:number, cell:number, gx:number, gy:number}) => void} onGrid 网格变化回调。
      * @returns {{updateConfig:(c:object)=>void, playPause:(p:boolean)=>void, destroy:()=>void}}
      */
     /**
@@ -936,18 +817,16 @@ window.__ModuleLoader__.load({
         geometryOf.getRects = fn
       }
 
-      /** 根据视口与配置计算网格。 */
+      /** 根据视口与配置计算网格（固定 CSS 像素格宽，列数随窗口反算）。 */
       function computeGrid() {
         const dpr = window.devicePixelRatio || 1
         const Wdev = Math.round(window.innerWidth * dpr)
         const Hdev = Math.round(window.innerHeight * dpr)
         const g = cfg.grid || {}
-        if (g.mode === 'manual' && g.cellWidth != null) {
-          const mg = computeManualGrid(Wdev, Hdev, dpr, g.cellWidth, g.gap == null ? 0 : g.gap)
-          return { ...mg, mode: 'manual', Wdev, Hdev, dpr, cellCss: g.cellWidth, gapCss: g.gap == null ? 0 : g.gap }
-        }
-        const ag = computeAutoGrid(Wdev, Hdev, dpr)
-        return { ...ag, mode: 'auto', Wdev, Hdev, dpr }
+        const cellCss = g.cellWidth == null ? 5 : g.cellWidth
+        const gapCss = g.gap == null ? 0.8 : g.gap
+        const mg = computeManualGrid(Wdev, Hdev, dpr, cellCss, gapCss)
+        return { ...mg, Wdev, Hdev, dpr, cellCss, gapCss }
       }
 
       /** 重设画布 backing store 到设备像素尺寸。 */
@@ -982,8 +861,8 @@ window.__ModuleLoader__.load({
         cx.fillStyle = render.background
         cx.fillRect(0, 0, grid.Wdev, grid.Hdev)
 
-        const xPos = computePositions(grid.Wdev, grid.cols, grid.cell, grid.gx, grid.seamless, grid.spreadX || 0)
-        const yPos = computePositions(grid.Hdev, grid.rows, grid.cell, grid.gy, grid.seamless, grid.spreadY || 0)
+        const xPos = computePositions(grid.Wdev, grid.cols, grid.cell)
+        const yPos = computePositions(grid.Hdev, grid.rows, grid.cell)
 
         // floyd 误差扩散：整帧内传播
         const floyd = render.dither === 'floyd'
@@ -1152,7 +1031,6 @@ window.__ModuleLoader__.load({
 
       function updateConfig(c) {
         const prevSignature = algorithmSignature(cfg.algorithm)
-        const prevGrid = cfg.grid && cfg.grid.mode === 'manual' ? { w: cfg.grid.cellWidth, g: cfg.grid.gap } : 'auto'
 
         cfg = c
         playing = cfg.animation && cfg.animation.playing !== false
@@ -1161,8 +1039,9 @@ window.__ModuleLoader__.load({
 
         const g = computeGrid()
         const gridChanged =
-          g.cols !== grid.cols || g.rows !== grid.rows || g.mode !== grid.mode ||
-          (grid.mode === 'manual' && (g.cell !== grid.cell || g.gx !== grid.gx || g.gy !== grid.gy))
+          g.cols !== grid.cols || g.rows !== grid.rows || g.cell !== grid.cell ||
+          g.gx !== grid.gx || g.gy !== grid.gy ||
+          g.cellCss !== grid.cellCss || g.gapCss !== grid.gapCss
 
         if (gridChanged) {
           // 网格尺寸变了必须重建实例：亮场是算法实例内部的数组，只替换 instance.field
@@ -1177,8 +1056,7 @@ window.__ModuleLoader__.load({
               rows: g.rows,
               cell: Math.round(g.cell / dpr * 10) / 10,
               gx: Math.round(g.gx / dpr * 10) / 10,
-              gy: Math.round(g.gy / dpr * 10) / 10,
-              mode: g.mode
+              gy: Math.round(g.gy / dpr * 10) / 10
             })
           }
         } else if (algChanged) {
@@ -1202,8 +1080,7 @@ window.__ModuleLoader__.load({
           rows: initial.rows,
           cell: Math.round(initial.cell / dpr * 10) / 10,
           gx: Math.round(initial.gx / dpr * 10) / 10,
-          gy: Math.round(initial.gy / dpr * 10) / 10,
-          mode: initial.mode
+          gy: Math.round(initial.gy / dpr * 10) / 10
         })
       }
 
@@ -1379,16 +1256,22 @@ window.__ModuleLoader__.load({
     function withDefaults(raw) {
       const src = raw || {}
       const base = {
-        version: 3,
+        version: 4,
         coverage: { header: true, left: true, right: true, input: false },
-        grid: { mode: 'auto', cellWidth: null, gap: null },
+        grid: { cellWidth: 5, gap: 0.8 },
         render: { shape: 'square', levels: 8, palette: ['#1b1b1b', '#c9c9c9'], gamma: 1.0, black: 0, white: 100, dither: 'none', background: '#141414', transparency: 90 },
         animation: { playing: true, speed: 1 },
         algorithm: { id: 'boids', seed: 1337, params: {} }
       }
       const out = { ...base, ...src }
-      for (const key of ['coverage', 'grid', 'render', 'animation']) {
+      for (const key of ['coverage', 'render', 'animation']) {
         out[key] = { ...base[key], ...(src[key] || {}) }
+      }
+      // 旧版 auto 配置的 grid 是 { mode, cellWidth:null, gap:null }：丢弃 mode，空值回退 5/0.8。
+      const srcGrid = src.grid && typeof src.grid === 'object' ? src.grid : {}
+      out.grid = {
+        cellWidth: srcGrid.cellWidth == null ? base.grid.cellWidth : srcGrid.cellWidth,
+        gap: srcGrid.gap == null ? base.grid.gap : srcGrid.gap
       }
       out.algorithm = { ...base.algorithm, ...(src.algorithm || {}) }
       out.algorithm.params = { ...((src.algorithm && src.algorithm.params) || {}) }
@@ -1486,18 +1369,57 @@ window.__ModuleLoader__.load({
       )
     }
 
-    /** 数值输入。 */
+    /**
+     * 归一化数字输入草稿（失焦 / 回车时调用）。
+     * 空串、NaN、非有限数回退 fallback；其余 clamp 到 [min, max]。
+     * @param {string|number} draft 输入框里的原始文本。
+     * @param {number} fallback 当前生效值（非法输入时回退）。
+     * @param {number} min 下限。
+     * @param {number} max 上限。
+     * @returns {number} 合法数值。
+     */
+    function normalizeNumberInput(draft, fallback, min, max) {
+      const text = typeof draft === 'string' ? draft.trim() : draft
+      if (text === '' || text === null || text === undefined) return fallback
+      const n = Number(text)
+      if (!Number.isFinite(n)) return fallback
+      return Math.min(max, Math.max(min, n))
+    }
+
+    /** 数值输入：输入过程中只改本地草稿，失焦 / 回车才提交。 */
     function NumberField(props) {
+      const [draft, setDraft] = React.useState(props.value == null ? '' : String(props.value))
+
+      // 外部值变化（保存后回填、切换到别的算法等）时同步草稿。
+      React.useEffect(() => {
+        setDraft(props.value == null ? '' : String(props.value))
+      }, [props.value])
+
+      const commit = () => {
+        const next = normalizeNumberInput(draft, props.value, props.min, props.max)
+        setDraft(String(next))
+        if (next !== props.value) props.onChange(next)
+      }
+
       return h('label', { className: 'pw-row' },
         h('span', { className: 'pw-row-label', style: { flex: 1 } }, props.label),
         h('input', {
           className: 'pw-input',
           type: 'number',
-          value: props.value,
+          value: draft,
           min: props.min,
           max: props.max,
           step: props.step || 1,
-          onChange: (e) => props.onChange(Number(e.target.value))
+          onChange: (e) => setDraft(e.target.value),
+          onBlur: commit,
+          onKeyDown: (e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              commit()
+            } else if (e.key === 'Escape') {
+              setDraft(props.value == null ? '' : String(props.value))
+            }
+          }
         })
       )
     }
@@ -1581,9 +1503,9 @@ window.__ModuleLoader__.load({
       const anim = config.animation || {}
       const algo = config.algorithm || {}
 
-      /** 网格信息行。 */
+      /** 网格信息行（实际列×行与实际格宽/间隔，CSS px 保留一位小数）。 */
       const stats = gridInfo
-        ? `当前 ${gridInfo.cols} × ${gridInfo.rows} 格 · ${gridInfo.cell}px / ${gridInfo.gx}px 间隔（${gridInfo.mode === 'auto' ? '自动' : '手动'}）`
+        ? `当前 ${gridInfo.cols} × ${gridInfo.rows} 格 · ${Number(gridInfo.cell).toFixed(1)}px / ${Number(gridInfo.gx).toFixed(1)}px 间隔`
         : ''
 
       /** 影响范围是否未识别。 */
@@ -1603,33 +1525,28 @@ window.__ModuleLoader__.load({
       /** 当前算法的 schema。 */
       const algoDef = algorithmOf(algo.id) || algorithmOf('boids')
 
-      /** 从自动值切到手动：把当前算出的格子宽/缝写进配置。 */
-      const toManual = () => {
-        if (!gridInfo) return
-        const cellWidth = Math.max(2, Math.min(40, Number(gridInfo.cell) || 9))
-        const gap = Math.max(0, Math.min(20, Number(gridInfo.gx) || 0))
-        patch((p) => ({ ...p, grid: { mode: 'manual', cellWidth, gap } }))
-      }
-
-      /** 网格（插件通用）：自动只读，点「调整」转手动。 */
+      /** 网格（插件通用）：固定 CSS 像素格宽与间隔，列数随窗口反算。 */
       const gridControls = h('div', { className: 'pw-group' },
         h('div', { className: 'pw-group-label' }, '网格'),
         h('div', { className: 'pw-fields' },
-          (grid.mode === 'auto'
-            ? h('div', { className: 'pw-row' },
-              h('span', { className: 'pw-row-label' }, '单元格宽（自动）'),
-              h('span', { className: 'pw-hint' }, gridInfo ? `${gridInfo.cell}px` : '—'),
-              h('button', { className: 'pw-btn pw-btn-mini', disabled: !gridInfo, onClick: toManual }, '调整'))
-            : h(NumberField, { label: '单元格宽', value: grid.cellWidth, min: 2, max: 40, onChange: (v) => patch((p) => ({ ...p, grid: { ...p.grid, mode: 'manual', cellWidth: v } })) })),
-          (grid.mode === 'auto'
-            ? h('div', { className: 'pw-row' },
-              h('span', { className: 'pw-row-label' }, '间隔（自动）'),
-              h('span', { className: 'pw-hint' }, gridInfo ? `${gridInfo.gx}px` : '—'),
-              h('button', { className: 'pw-btn pw-btn-mini', disabled: !gridInfo, onClick: toManual }, '调整'))
-            : h(NumberField, { label: '间隔', value: grid.gap, min: 0, max: 20, onChange: (v) => patch((p) => ({ ...p, grid: { ...p.grid, mode: 'manual', gap: v } })) }))
+          h(NumberField, {
+            label: '格宽（CSS px）',
+            value: grid.cellWidth,
+            min: 3,
+            max: 20,
+            step: 0.5,
+            onChange: (v) => patch((p) => ({ ...p, grid: { ...p.grid, cellWidth: v } }))
+          }),
+          h(NumberField, {
+            label: '间隔（CSS px）',
+            value: grid.gap,
+            min: 0,
+            max: 8,
+            step: 0.1,
+            onChange: (v) => patch((p) => ({ ...p, grid: { ...p.grid, gap: v } }))
+          })
         ),
         h('div', { className: 'pw-row' },
-          h('button', { className: 'pw-btn', onClick: () => patch((p) => ({ ...p, grid: { mode: 'auto', cellWidth: null, gap: null } })) }, '重置为自动'),
           h('span', { className: 'pw-grid-stats' }, stats)
         )
       )
@@ -1870,9 +1787,9 @@ window.__ModuleLoader__.load({
       }
 
       const initialConfig = {
-        version: 3,
+        version: 4,
         coverage: { header: true, left: true, right: true, input: false },
-        grid: { mode: 'auto', cellWidth: null, gap: null },
+        grid: { cellWidth: 5, gap: 0.8 },
         render: { shape: 'square', levels: 8, palette: ['#1b1b1b', '#c9c9c9'], gamma: 1.0, black: 0, white: 100, dither: 'none', background: '#141414', transparency: 90 },
         animation: { playing: true, speed: 1 },
         algorithm: { id: 'boids', seed: 1337, params: {} }
@@ -1906,7 +1823,7 @@ window.__ModuleLoader__.load({
           window.dispatchEvent(new CustomEvent('pixel-wallpaper:regions', {
             detail: { regions: recognized, closed: { right: Boolean(cachedRects.rightClosed) } }
           }))
-          // 设置页是后挂载的：补发最近一次网格信息，避免「单元格宽」一直显示 —。
+          // 设置页是后挂载的：补发最近一次网格信息，避免「格宽/间隔」一直显示 —。
           if (lastGridInfo) window.dispatchEvent(new CustomEvent('pixel-wallpaper:grid', { detail: lastGridInfo }))
         }
       }
@@ -2068,9 +1985,9 @@ window.__ModuleLoader__.load({
       __internals: {
         mulberry32,
         createRenderer,
-        computeAutoGrid,
         computeManualGrid,
         computePositions,
+        normalizeNumberInput,
         paletteAt,
         shadeToRgb,
         fadeToBackground,

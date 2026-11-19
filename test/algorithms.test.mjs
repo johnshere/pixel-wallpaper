@@ -49,10 +49,12 @@ test('噪声场：换种子会换图案', () => {
   assert.ok(diff > 1, `不同种子的噪声场应明显不同（差值 ${diff}）`)
 })
 
-test('鸟群：默认 150 只，三个规则权重都可由二级参数覆盖', () => {
+test('鸟群：默认 80 只、硬上限 200，三个规则权重都可由二级参数覆盖', () => {
   const def = algorithmOf('boids')
   const byKey = new Map(def.schema.map((f) => [f.key, f]))
-  assert.equal(byKey.get('agents').default, 150)
+  assert.equal(byKey.get('agents').default, 80)
+  assert.equal(byKey.get('agents').min, 60)
+  assert.equal(byKey.get('agents').max, 200)
   for (const key of ['separation', 'alignment', 'cohesion']) {
     assert.ok(byKey.has(key), `schema 应包含 ${key}`)
   }
@@ -61,11 +63,22 @@ test('鸟群：默认 150 只，三个规则权重都可由二级参数覆盖', 
   assert.equal(byKey.get('cohesion').default, 0.7)
 })
 
+test('鸟群：agents=999 实际只创建 200 只，且每只鸟速度不同', () => {
+  const def = algorithmOf('boids')
+  const inst = def.create({ cols: COLS, rows: ROWS, seed: 7, params: { agents: 999 } })
+  assert.equal(inst.speeds.length, 200, '硬上限 200')
+  assert.ok(new Set(inst.speeds).size > 1, '每只鸟速度应不同（可追赶/逃离）')
+  for (let i = 0; i < 10; i++) inst.step(1 / 30)
+  for (let i = 0; i < inst.field.length; i++) {
+    assert.ok(Number.isFinite(inst.field[i]), `field[${i}] 不应是 ${inst.field[i]}`)
+  }
+})
+
 test('算法实例签名：二级参数改动视为需要重启（重置）', () => {
   const { algorithmSignature } = bundle.__internals
-  const base = { id: 'boids', seed: 1, params: { agents: 150, cohesion: 0.7 } }
-  assert.equal(algorithmSignature(base), algorithmSignature({ ...base, params: { agents: 150, cohesion: 0.7 } }))
-  assert.notEqual(algorithmSignature(base), algorithmSignature({ ...base, params: { agents: 150, cohesion: 1.2 } }))
+  const base = { id: 'boids', seed: 1, params: { agents: 80, cohesion: 0.7 } }
+  assert.equal(algorithmSignature(base), algorithmSignature({ ...base, params: { agents: 80, cohesion: 0.7 } }))
+  assert.notEqual(algorithmSignature(base), algorithmSignature({ ...base, params: { agents: 80, cohesion: 1.2 } }))
   assert.notEqual(algorithmSignature(base), algorithmSignature({ ...base, seed: 2 }))
   assert.notEqual(algorithmSignature(base), algorithmSignature({ ...base, id: 'flow' }))
 })

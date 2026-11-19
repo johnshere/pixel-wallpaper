@@ -52,4 +52,8 @@ test('withDefaults 用默认值补齐旧宿主返回的配置', () => {
   assert.equal(merged.coverage.header, true)
   assert.equal(merged.algorithm.id, 'flow')
   assert.equal(merged.algorithm.seed, 1337)
+  // 网格迁移：缺省回退 5/0.8，旧 auto 的 null 也回退，旧 manual 值原样保留。
+  assert.deepEqual(merged.grid, { cellWidth: 5, gap: 0.8 })
+  assert.deepEqual(withDefaults({ grid: { mode: 'auto', cellWidth: null, gap: null } }).grid, { cellWidth: 5, gap: 0.8 })
+  assert.deepEqual(withDefaults({ grid: { mode: 'manual', cellWidth: 9, gap: 1 } }).grid, { cellWidth: 9, gap: 1 })
 })
