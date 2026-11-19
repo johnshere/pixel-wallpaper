@@ -57,3 +57,16 @@ test('withDefaults 用默认值补齐旧宿主返回的配置', () => {
   assert.deepEqual(withDefaults({ grid: { mode: 'auto', cellWidth: null, gap: null } }).grid, { cellWidth: 5, gap: 0.8 })
   assert.deepEqual(withDefaults({ grid: { mode: 'manual', cellWidth: 9, gap: 1 } }).grid, { cellWidth: 9, gap: 1 })
 })
+
+test('resolveInitialConfig：有 live 配置优先，避免挂载时读回旧值', () => {
+  const { resolveInitialConfig } = internals
+  // 场景：刚把格宽改成 6，PUT 还在防抖中，切回设置页应直接用 live 的 6。
+  const live = resolveInitialConfig({ grid: { cellWidth: 6, gap: 0.8 }, render: { levels: 5 } })
+  assert.equal(live.needsFetch, false, '有 live 配置时不应再 GET')
+  assert.equal(live.config.grid.cellWidth, 6)
+  assert.equal(live.config.render.levels, 5)
+  assert.equal(live.config.render.transparency, 90, 'live 配置也要用 withDefaults 补齐')
+
+  // 没有 live 配置（画布未启动）时才需要 GET。
+  assert.deepEqual(resolveInitialConfig(null), { config: null, needsFetch: true })
+})

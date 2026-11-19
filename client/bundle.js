@@ -1278,6 +1278,18 @@ window.__ModuleLoader__.load({
       return out
     }
 
+    /**
+     * 设置页初始配置的来源选择：画布已有 live 配置时优先用它（补齐默认值），
+     * 否则返回 needsFetch，让调用方向宿主 GET。
+     * 切页重挂载时上一次 PUT 可能还在 300ms 防抖中，GET 会读到旧值；有 live 配置就不能再 GET。
+     * @param {object|null} live 画布当前生效配置（rendererConfig）。
+     * @returns {{config: object|null, needsFetch: boolean}}
+     */
+    function resolveInitialConfig(live) {
+      if (!live) return { config: null, needsFetch: true }
+      return { config: withDefaults(live), needsFetch: false }
+    }
+
     async function getConfig() {
       const res = await fetch(`${API}/config`, { credentials: 'same-origin', headers: { accept: 'application/json' } })
       if (!res.ok) throw new Error(`GET ${API}/config -> HTTP ${res.status}`)
@@ -1438,7 +1450,9 @@ window.__ModuleLoader__.load({
      * @returns {object} React 元素。
      */
     function SettingsSection() {
-      const [config, setConfig] = React.useState(null)
+      // 挂载时若画布已有生效配置（可能刚提交、PUT 还在防抖），直接用它，避免 GET 到旧值。
+      const [initial] = React.useState(() => resolveInitialConfig(rendererConfig))
+      const [config, setConfig] = React.useState(initial.config)
       const [gridInfo, setGridInfo] = React.useState(null)
       const [loadError, setLoadError] = React.useState('')
       const [saveNote, setSaveNote] = React.useState('')
@@ -1448,9 +1462,15 @@ window.__ModuleLoader__.load({
 
       React.useEffect(() => {
         let alive = true
-        getConfig()
-          .then((c) => { if (alive) setConfig(c) })
-          .catch((err) => { if (alive) setLoadError(`读取配置失败：${err.message}`) })
+        if (initial.needsFetch) {
+          getConfig()
+            .then((c) => {
+              if (!alive) return
+              // GET 期间画布产生了 live 配置：以 live 为准，别被旧响应覆盖。
+              setConfig(rendererConfig ? withDefaults(rendererConfig) : c)
+            })
+            .catch((err) => { if (alive) setLoadError(`读取配置失败：${err.message}`) })
+        }
         // 监听区域测量结果
         const onRegions = (e) => {
           if (!alive || !e.detail) return
@@ -1487,6 +1507,8 @@ window.__ModuleLoader__.load({
       const patch = (updater) => {
         setConfig((prev) => {
           const next = typeof updater === 'function' ? updater(prev) : { ...prev, ...updater }
+          // 同步 live 缓存：即使 renderer 尚未监听（或已卸载），设置页重挂载也能拿到最新值。
+          rendererConfig = next
           // 派发事件让画布即时应用
           if (typeof window !== 'undefined') {
             window.dispatchEvent(new CustomEvent(CONFIG_EVENT, { detail: { config: next } }))
@@ -1992,6 +2014,7 @@ window.__ModuleLoader__.load({
         shadeToRgb,
         fadeToBackground,
         withDefaults,
+        resolveInitialConfig,
         hexToRgb,
         clamp,
         registerAlgorithm,
