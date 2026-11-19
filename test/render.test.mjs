@@ -60,7 +60,7 @@ test('withDefaults 用默认值补齐旧宿主返回的配置', () => {
 
 test('resolveInitialConfig：有 live 配置优先，避免挂载时读回旧值', () => {
   const { resolveInitialConfig } = internals
-  // 场景：刚把格宽改成 6，PUT 还在防抖中，切回设置页应直接用 live 的 6。
+  // 场景：刚把格宽改成 6，PUT 可能仍在进行中，切回设置页应直接用 live 的 6。
   const live = resolveInitialConfig({ grid: { cellWidth: 6, gap: 0.8 }, render: { levels: 5 } })
   assert.equal(live.needsFetch, false, '有 live 配置时不应再 GET')
   assert.equal(live.config.grid.cellWidth, 6)
@@ -69,4 +69,32 @@ test('resolveInitialConfig：有 live 配置优先，避免挂载时读回旧值
 
   // 没有 live 配置（画布未启动）时才需要 GET。
   assert.deepEqual(resolveInitialConfig(null), { config: null, needsFetch: true })
+})
+
+test('createSerialSaver：串行保存，最后一次配置最终落盘', async () => {
+  const { createSerialSaver } = internals
+  const started = []
+  const pending = []
+  const notes = []
+  const tick = () => new Promise((resolve) => setImmediate(resolve))
+  const saver = createSerialSaver(
+    (c) => new Promise((resolve, reject) => { started.push(c); pending.push({ resolve, reject }) }),
+    (err) => notes.push(err ? '保存失败' : '已保存')
+  )
+
+  saver({ n: 1 })
+  saver({ n: 2 })
+  saver({ n: 3 })
+  assert.deepEqual(started, [{ n: 1 }], '同一时刻只允许一个保存')
+
+  // 第一次失败不阻断队列；中间配置被最后一次覆盖。
+  pending[0].reject(new Error('boom'))
+  await tick()
+  assert.deepEqual(started, [{ n: 1 }, { n: 3 }])
+  assert.deepEqual(notes, ['保存失败'])
+
+  pending[1].resolve('ok')
+  await tick()
+  assert.deepEqual(notes, ['保存失败', '已保存'])
+  assert.equal(started.length, 2, '不再补发空队列')
 })

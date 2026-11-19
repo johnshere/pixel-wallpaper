@@ -16,7 +16,7 @@ window.__ModuleLoader__.load({
      * 2. **六支算法**：统一接口 `create({cols,rows,seed,params}) -> {field, step}`，
      *    只产出 cols×rows 的 Float32Array 亮度场，不碰颜色/形状/缝隙。
      * 3. **设置页**：配置读写走 /pixel-wallpaper/api/config，任何改动即时作用于画布，
-     *    300ms 防抖 PUT，保存失败提示但不回滚。
+     *    提交即串行 PUT（不并发乱序），保存失败提示但不回滚。
      *
      * 全部逻辑套在 try/catch 里：任何失败只丢背景，绝不白屏、绝不拖垮设置页其它节。
      * 类名前缀 pw-；宿主只提供 require('react')。
@@ -1281,7 +1281,7 @@ window.__ModuleLoader__.load({
     /**
      * 设置页初始配置的来源选择：画布已有 live 配置时优先用它（补齐默认值），
      * 否则返回 needsFetch，让调用方向宿主 GET。
-     * 切页重挂载时上一次 PUT 可能还在 300ms 防抖中，GET 会读到旧值；有 live 配置就不能再 GET。
+     * 切页重挂载时上一次 PUT 可能仍在进行中，GET 会读到旧值；有 live 配置就不能再 GET。
      * @param {object|null} live 画布当前生效配置（rendererConfig）。
      * @returns {{config: object|null, needsFetch: boolean}}
      */
@@ -1320,6 +1320,39 @@ window.__ModuleLoader__.load({
         }, wait)
       }
     }
+
+    /**
+     * 串行保存器：提交即保存，同一时刻最多一个任务。
+     * 任务进行中收到的新配置只保留最后一份，当前任务结束后立刻补发；
+     * 因此不并发、不乱序，最终落盘的一定是最新配置（不是防抖，不延迟）。
+     * @param {(config: object) => Promise<any>} save 单次保存函数。
+     * @param {(error: Error|null, result?: any) => void} [done] 每次保存结束回调。
+     * @returns {(config: object) => void} 入队函数。
+     */
+    function createSerialSaver(save, done) {
+      let busy = false
+      let pending = null
+      const flush = () => {
+        if (busy || pending === null) return
+        const config = pending
+        pending = null
+        busy = true
+        save(config).then(
+          (result) => { busy = false; if (done) done(null, result); flush() },
+          (err) => { busy = false; if (done) done(err); flush() }
+        )
+      }
+      return (config) => { pending = config; flush() }
+    }
+
+    /** 当前设置页的保存结果提示回调；卸载后置空，避免向已卸载实例写状态。 */
+    let onConfigSaved = () => {}
+
+    /** 全局配置保存器：跨设置页挂载共享，保证任意时刻只有一个 PUT 在途。 */
+    const saveConfigSerial = createSerialSaver(
+      (config) => putConfig(config),
+      (err) => { onConfigSaved(err) }
+    )
 
     /* ────────────────────────────────────────────────────────────────────────
      * 设置页
@@ -1450,7 +1483,7 @@ window.__ModuleLoader__.load({
      * @returns {object} React 元素。
      */
     function SettingsSection() {
-      // 挂载时若画布已有生效配置（可能刚提交、PUT 还在防抖），直接用它，避免 GET 到旧值。
+      // 挂载时若画布已有生效配置（可能刚提交、PUT 仍在进行中），直接用它，避免 GET 到旧值。
       const [initial] = React.useState(() => resolveInitialConfig(rendererConfig))
       const [config, setConfig] = React.useState(initial.config)
       const [gridInfo, setGridInfo] = React.useState(null)
@@ -1481,15 +1514,11 @@ window.__ModuleLoader__.load({
         return () => { alive = false; window.removeEventListener('pixel-wallpaper:regions', onRegions) }
       }, [])
 
-      // 去抖保存
-      const saveDebounced = React.useRef(null)
+      // 保存结果提示；全局保存器可能跨挂载继续跑，只由当前实例接收结果。
       React.useEffect(() => {
-        saveDebounced.current = debounce((c) => {
-          putConfig(c)
-            .then((result) => { setSaveNote('已保存') })
-            .catch((err) => { setSaveNote(`保存失败：${err.message}（画面不回滚）`) })
-        }, 300)
-        return () => { if (saveDebounced.current) saveDebounced.current = null }
+        const onSaved = (err) => { setSaveNote(err ? `保存失败：${err.message}（画面不回滚）` : '已保存') }
+        onConfigSaved = onSaved
+        return () => { if (onConfigSaved === onSaved) onConfigSaved = () => {} }
       }, [])
 
       // 网格信息回调
@@ -1503,7 +1532,7 @@ window.__ModuleLoader__.load({
         return h('div', { className: 'pw-section' }, h('div', { className: 'pw-note' }, loadError || '加载中…'))
       }
 
-      /** 改配置 + 派发即时应用事件 + 去抖保存（不落盘运行时值）。 */
+      /** 改配置 + 派发即时应用事件 + 立即串行保存（不落盘运行时值）。 */
       const patch = (updater) => {
         setConfig((prev) => {
           const next = typeof updater === 'function' ? updater(prev) : { ...prev, ...updater }
@@ -1513,8 +1542,8 @@ window.__ModuleLoader__.load({
           if (typeof window !== 'undefined') {
             window.dispatchEvent(new CustomEvent(CONFIG_EVENT, { detail: { config: next } }))
           }
-          // 去抖保存（剥掉运行时计算值，由 sanitize 处理）
-          if (saveDebounced.current) saveDebounced.current(next)
+          // 立即保存（剥掉运行时计算值，由 sanitize 处理）
+          saveConfigSerial(next)
           return next
         })
       }
@@ -2015,6 +2044,7 @@ window.__ModuleLoader__.load({
         fadeToBackground,
         withDefaults,
         resolveInitialConfig,
+        createSerialSaver,
         hexToRgb,
         clamp,
         registerAlgorithm,
