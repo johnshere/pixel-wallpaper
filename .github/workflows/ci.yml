@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Install (no lifecycle scripts)
+        run: npm install --ignore-scripts
+      - name: Test
+        run: npm test
+      - name: Syntax check
+        run: npm run check
+      - name: Build (output redirected to temp)
+        run: PIXEL_WALLPAPER_OUT="$RUNNER_TEMP/pw-out" npm run build
+      - name: Generated artifacts are up to date
+        run: git diff --exit-code -- client/bundle.js src/algorithm-schemas.js

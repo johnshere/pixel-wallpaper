@@ -1,9 +1,9 @@
 # pixel-wallpaper · 设计文档
 
-- 版本：0.1（冻结）
-- 日期：2026-11-17
-- 目标宿主：DSH（DeepSeek Harness）Web，`dsh >= 0.2.2-rc.3`
-- 仓库：`johnshere/pixel-wallpaper`（private）
+- 版本：0.1.0-alpha.1
+- 日期：2026-11-19
+- 目标宿主：DSH（DeepSeek Harness）Web，`dsh >= 0.2.2-rc.3`（强制）
+- 仓库：`johnshere/pixel-wallpaper`
 
 ## 1. 一句话
 
@@ -15,12 +15,12 @@
 - **不是**：独立站点、Vite 页面、命令行工具、图片导入器。
 - **不做**：导出 PNG、URL 状态、分享、独立预览页、命令。
 - **不碰宿主**：不重写布局、配色、交互；只注入一块固定画布和「让底层透出来」的最小样式。顶栏、左栏、侧栏、输入区保持悬浮原样。
-- 图片 tab 只放占位文案，不实现上传与抽样。
+- 图片 tab **已隐藏，代码保留**（占位文案、`imageTab`、`tab/setTab` 分支都不删；`SHOW_TABS` 改回 `true` 即恢复）。不实现上传与抽样。
 
 ## 3. 技术栈与目录
 
 - 纯 CommonJS（宿主侧）+ 浏览器侧 CommonJS 源码；React 由宿主以 `require('react')` 提供。零运行时依赖、零打包器。
-- 客户端 `client/index.js` 由 `scripts/build-client.mjs` 包成 `client/bundle.js`（`window.__ModuleLoader__.load({ id, factory })`），构建产物入库，源码改后必须重跑 `npm run build`。
+- 客户端 `client/index.js` 由 `scripts/build.mjs` 包成 `client/bundle.js`（`window.__ModuleLoader__.load({ id, factory })`），并从客户端注册表生成 `src/algorithm-schemas.js`；两个生成物都入库，源码改后必须重跑 `npm run build`（或 `npm run build -- --assets`）。
 - 样式全部由插件自己注入 `<style>`，类名前缀 `pw-`；不改宿主的 CSS Module 类名。
 
 ```
@@ -28,15 +28,16 @@ package.json
 cordis.patch.yml          # bundle patch：insert 宿主插件
 src/index.js              # 宿主：cordis 插件 + /pixel-wallpaper/api
 src/config.js             # 默认值、校验、原子读写 config.json
-scripts/build-client.mjs  # client/index.js -> client/bundle.js
-client/index.js           # 浏览器侧：画布、渲染、算法、设置页
-client/bundle.js          # 构建产物
-test/grid.test.mjs        # 网格几何纯函数单测（node --test）
-test/palette.test.mjs     # 调色板/量化单测
+src/algorithm-schemas.js  # 由 scripts/build.mjs 从客户端注册表生成
+scripts/build.mjs         # client/index.js -> client/bundle.js；--assets 只刷生成物
+client/index.js           # 浏览器侧：画布、渲染、算法、设置页（不发布）
+client/bundle.js          # 构建产物（发布）
+test/*.test.mjs           # node --test：网格/调色板/算法/渲染/DPR/生命周期/发布清单
+.github/workflows/ci.yml  # Node 22/24 matrix，跑测试、检查、构建与生成物 diff
 docs/DESIGN.md            # 本文档
-README.md                 # 只有标题与三行命令，不写项目介绍
+README.md                 # 安装/升级/卸载/排错/隐私/兼容性
+CHANGELOG.md
 LICENSE                   # MIT, Copyright (c) 2026 johnshere
-.gitignore
 ```
 
 package.json 关键字段：
@@ -44,7 +45,7 @@ package.json 关键字段：
 ```json
 {
   "name": "dsh-pixel-wallpaper",
-  "version": "0.1.0",
+  "version": "0.1.0-alpha.1",
   "main": "src/index.js",
   "type": "commonjs",
   "exports": {
@@ -57,14 +58,29 @@ package.json 关键字段：
     "bundle": { "patch": "./cordis.patch.yml" },
     "client": { "platform": "web" }
   },
-  "files": ["src", "client", "cordis.patch.yml", "README.md", "LICENSE"],
+  "files": [
+    "src/index.js",
+    "src/config.js",
+    "src/algorithm-schemas.js",
+    "client/bundle.js",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "publishConfig": { "access": "public", "tag": "alpha" },
   "scripts": {
-    "build": "node scripts/build-client.mjs",
+    "build": "node scripts/build.mjs",
+    "prepack": "node scripts/build.mjs --assets",
     "check": "node --check src/index.js && node --check client/bundle.js",
     "test": "node --test \"test/*.test.mjs\""
   }
 }
 ```
+
+- npm 发布的是**仓库根包**，`files` 白名单只含运行时文件；`client/index.js` 源码、`scripts/`、`test/`、`docs/` 都不进 tarball。
+- `npm run build` 仍额外生成 E: 自包含目录（`lib/index.js` + `client/bundle.js`），只用于本地 link 调试，不是发布内容。
+- `engines.dsh` 由宿主 app-boot 在导入前强制校验；低于 `0.2.2-rc.3` 的 DSH 会拒绝加载，不要改成 `^` 或加上限。
 
 `cordis.patch.yml` 只做一件事：
 
@@ -144,7 +160,10 @@ x_i  = i * step                             i = 0..n-1
 ### 5.5 变化响应
 
 - `resize`、`dpr` 变化：保留 `cellWidthCss/gapCss`，重算 `n/m/g_x/g_y`；格宽按 CSS px 固定，窗口变宽只增减列数。
-- 用 `ResizeObserver` 观察 `document.documentElement`，再用 `matchMedia('(resolution: Xdppx)')` 监听跨屏 DPR 变化。
+- 用 `ResizeObserver` 观察 `document.documentElement`（缺失时不影响 DPR 监听：两者分在独立的 try 里）。
+- DPR 监听**按当前 dpr 精确绑定并动态重绑**：`matchMedia('(resolution: <当前 dpr>dppx)')`，change 后比较 `devicePixelRatio`，变了就重新绑定并重算。因此 `1.25 → 1.5` 这类非 1x 之间的缩放变化也会触发（旧实现只监听 1dppx，会漏掉）。
+- `window resize` 作为兜底：部分浏览器切换缩放/跨屏只派发 resize，不派发 media change；resize 时若 dpr 变了同样重绑 + 重算。
+- 不使用轮询定时器。重算优先用 live 配置，启动早期 GET 未返回时用初始配置。
 - 网格尺寸变化一律**重建算法实例**（从种子重新播种）。亮场是算法实例内部的数组：把 `instance.field` 换成重采样快照，算法仍写自己的数组，绘制就会永远停在那张快照上（画面静止、rAF 照跑，且无报错）。
 
 ## 6. 亮度 → 像素
@@ -251,22 +270,23 @@ create({ cols, rows, seed, params }) -> {
 │   网格   格宽（CSS px）/ 间隔（CSS px）  当前 331 × 186 格 · 5.0px / 0.8px 间隔
 │   外观   形状 / 层数 / gamma / 黑场 / 白场 / 抖动 / 透明度
 │   色值   调色板 + 底色
-└─ [算法] [图片]                      ← tab
-    算法 Tab：算法下拉（名称 — 描述）/ 播放暂停 · 速度 / 种子 / 二级参数
+└─ 算法内容（tab 条已隐藏）
+    算法下拉（名称 — 描述）/ 播放暂停 · 速度 / 种子 / 二级参数
 ```
 
 行为：
 
-- 分组：**插件通用配置**（网格、外观、色值/底色）在背景范围与 Tab 之间；算法 Tab 内只放算法下拉、播放/速度、种子、二级参数。
+- 分组：**插件通用配置**（网格、外观、色值/底色）在背景范围与算法内容之间。
 - 插件通用：网格（格宽/间隔两个数字输入框，CSS px）；外观（形状/层数/gamma/黑场/白场/抖动/透明度）；色值（调色板 + 底色）。
-- 算法 Tab：算法下拉（每项「名称 — 描述」）、播放/暂停、速度、种子、二级参数（按 schema 生成）。
+- 算法内容：算法下拉（每项「名称 — 描述」）、播放/暂停、速度、种子、二级参数（按 schema 生成）。
+- 「算法 / 图片」tab 条默认整条隐藏（`SHOW_TABS = false`），直接显示算法内容；`tab` state、`setTab`、`imageTab` 与分支代码保留，改常量即可恢复。
 - 任何已提交的改动即时作用到画布（本地状态），立即 `PUT /pixel-wallpaper/api/config`（串行，不并发乱序）；保存失败提示但不回滚画面。
 - 算法 id、种子、二级参数、网格尺寸任一变化都重建算法实例并重绘（参数与 `cols/rows` 在 `create` 时读取）；不做跨尺寸重采样。
 - 插件通用配置两列排布：`.pw-fields` 用 `grid-template-columns:1fr 1fr`，字段不足两列时自然留空。
 - 「影响范围」四个开关：开 = 背景延伸进该区域；关 = 该矩形不绘制（露出宿主底色）。默认顶栏/左栏/侧栏开，输入区关。
 - 数字输入框（格宽、间隔、种子、透明度等）都在失焦或回车后提交：输入过程只改本地草稿；空值/非法值回退当前值，超范围 clamp；Escape 回退。避免每敲一个字符就重建算法、闪烁。
 - 只读行显示当前列×行、实际格宽与横向间隔（CSS px，一位小数）。
-- 图片 tab：居中虚线框，两行文案「图片」「预留：把任意图片抽样为同一套单元格亮度场」；无上传控件、无逻辑。
+- 图片 tab 已隐藏、代码保留：占位文案「图片」「预留：把任意图片抽样为同一套单元格亮度场」仍在，无上传控件、无逻辑。
 - 开关与控件沿用 DSH 的暗色风格；插件只补 `pw-` 前缀样式。
 - 保存结构里不写运行时计算值（cols/rows/g_x/g_y 不落盘）。
 
@@ -274,7 +294,7 @@ create({ cols, rows, seed, params }) -> {
 
 - 画布固定在 `position: fixed; inset: 0; pointer-events: none; z-index: -1`（垫在内容之下），作为 `body` 第一个子节点；宿主内容自然盖在它上面。
 - 让底层透出：只用 CSS，不改宿主 DOM 的 inline style（避免 React 重渲染后失效）。基础规则把 `html/body` 设为透明，并把 DSH 设计 token `--dsw-alias-bg-base`、`--dsw-specific-sidebar-fill` 在 `body`、`body[data-ds-dark-theme]`、`body[data-ds-light-theme]` 上覆盖为 `transparent !important`；面板与弹层仍走 elevated token，保持不透明可读。
-- 区域矩形每 500ms 或 `resize`/DOM 变化时节流重测；取候选元素的 `getBoundingClientRect()`：
+- 区域矩形在 `resize`/DOM 变化后 300ms debounce 重测（最后一次变化后重测，避免连续拖拽时抖动）；取候选元素的 `getBoundingClientRect()`：
   - 顶栏：`header` 或带 `topBar` 后缀的稳定类名；
   - 左栏：最左侧 `aside`/`nav`（含会话列表）；
   - 侧栏：右侧 `aside`（如 dsh-better-sidebar）；
@@ -312,34 +332,43 @@ module.exports = {
 4. 监听 `pixel-wallpaper:config` 自定义事件（设置页保存后派发）即时应用；启动时 `GET` 一次配置。
 5. 页面隐藏（`visibilitychange`）暂停动画；恢复时继续。
 6. 动画：`requestAnimationFrame` + 固定步长累加器，目标 24fps；速度倍率作用于模拟步长，不改帧率；暂停时保留最后一帧。
+7. 插件禁用/卸载（`ctx.effect` 的 cleanup）：移除画布、样式、事件监听、ResizeObserver 与动画；取消排队中的区域测量与 DPR 去抖重算。每次挂载生成独立 owner：`resetRendererState(owner)` 只复位属于该实例的 `rendererConfig`、`runtime.renderer/observer/owner/regions`；canvas、`<style>` 与 `onConfigSaved` 也只由对应 owner 清理，旧 cleanup 晚于新挂载执行时不会摘掉新实例的 DOM/样式或覆盖新回调。`trackConfig(renderer, owner)` 同时校验 `runtime.renderer === renderer`，旧实例迟到的 `GET`/resize/config 不会回写新 live 配置。新 mount 会先 destroy 上一个 renderer，避免重叠挂载时两套动画同画一块画布；destroy 幂等。即使 `startRenderer` 启动失败，也会在 `apply` 的 cleanup 里清一次。
 
 ## 13. 构建、安装、自检
 
 构建：
 
 ```
-npm run build     # client/index.js -> client/bundle.js
-npm run check     # node --check 两个入口
-npm test          # 网格/调色板纯函数单测
+npm run build                    # 生成两个入库生成物，并输出 E: 自包含目录
+npm run build -- --assets        # 只刷新 client/bundle.js + src/algorithm-schemas.js
+npm run check                    # node --check 两个入口
+npm test                         # 全部 node --test（含 DPR / 生命周期 / 发布清单）
+npm pack --dry-run --ignore-scripts  # 检查 npm tarball 文件集
 ```
 
-安装（由主进程执行，子代理不做）：
+发布：
 
-1. web profile 的 `package.json` dependencies 增加 `"dsh-pixel-wallpaper": "link:<Windows 可见路径>"`（工程在 WSL 时，先建指向 `\\wsl.localhost\<发行版>\...` 的目录符号链接，link 该链接）；
-2. `dsh.profile.bundles` 增加 `dsh-pixel-wallpaper`；
-3. profile 目录 `pnpm install`；
-4. 刷新页面 / 重启 DSH 生效。
+1. 根包即 npm 发布内容（`files` 白名单），不是 E: 自包含目录；
+2. `prepack` 先跑 `node scripts/build.mjs --assets`，生成物过期会被 CI 的 `git diff --exit-code` 拦住；
+3. `npm publish` 带 `publishConfig.tag=alpha`，需维护者已 `npm login`；子代理不发布。
+
+安装（用户侧）：
+
+- npm alpha：`dsh plugin --profile web add dsh-pixel-wallpaper@alpha` 后在 `dsh.profile.bundles` 加入包名，重启 DSH；
+- 本地 link 调试：web profile 的 dependencies 增加 `"dsh-pixel-wallpaper": "link:<Windows 盘符路径>"`，`bundles` 加入包名，profile 目录 `pnpm install`，刷新页面/重启 DSH。
 
 自检（执行者必须跑）：
 
-1. `npm run build && npm run check && npm test` 全绿。
+1. `npm test && npm run check && npm run build` 全绿；`node scripts/build.mjs --assets` 可独立跑通。
 2. 用 Node 直接 `require` 宿主侧模块，确认 `apply` 是函数、config 读写往返一致。
 3. 网格几何单测覆盖：1920×1080@1 → 331×186、2560×1440 → 441×248、3440×1440 → 593×248；dpr 1.25 / 1.5 下 `cell/dpr === 5`；`computePositions` 首格 0、末格贴边、缝恒定、gap=0 亚像素缝、count=1 边界。
-4. 不执行任何 git 写操作；不安装到 profile；不重启 DSH。
+4. DPR 单测覆盖 1→1.25→1.5→1（含 1.25→1.5 原缺口）、resize 兜底、dispose 后不再触发。
+5. 发布清单单测断言 `engines.dsh`、`main`、`files` 与 `npm pack --dry-run` 文件集。
+6. 不执行任何 git 写操作；不安装到 profile；不重启 DSH。
 
 ## 14. 非目标（本期明确不做）
 
-- 导入图片 / 图片抽样（只留 tab 占位）。
+- 导入图片 / 图片抽样（tab 已隐藏，占位代码保留）。
 - 导出 PNG、壁纸尺寸选择、URL 参数。
 - 命令、快捷键、独立窗口。
 - 多套主题、彩色方案、动画导出。

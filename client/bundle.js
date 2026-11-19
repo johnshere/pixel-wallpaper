@@ -1,4 +1,4 @@
-/*! dsh-pixel-wallpaper v0.1.0 | MIT | 构建产物，请勿手改 */
+/*! dsh-pixel-wallpaper v0.1.0-alpha.1 | MIT | 构建产物，请勿手改 */
 window.__ModuleLoader__.load({
   id: "dsh-pixel-wallpaper",
   factory: (require) => {
@@ -32,6 +32,13 @@ window.__ModuleLoader__.load({
     const STYLE_ID = 'pixel-wallpaper-style'
     const CANVAS_ID = 'pixel-wallpaper-canvas'
     const CONFIG_EVENT = 'pixel-wallpaper:config'
+
+    /**
+     * 设置页「算法 / 图片」tab 条开关。
+     * 图片 tab 尚未实现，先整条隐藏、直接显示算法内容；代码与分支保留，
+     * 改回 true 即可恢复 tab 条。
+     */
+    const SHOW_TABS = false
 
     /** 固定步长累计器：目标 24fps。 */
     const FRAME_MS = 1000 / 24
@@ -1183,6 +1190,7 @@ window.__ModuleLoader__.load({
       }
 
       function updateConfig(c) {
+        if (destroyed) return
         const prevSignature = algorithmSignature(cfg.algorithm)
 
         cfg = c
@@ -1240,8 +1248,10 @@ window.__ModuleLoader__.load({
 
       return {
         updateConfig,
+        isDestroyed: () => destroyed,
         setCoverageProvider,
         playPause: (next) => {
+          if (destroyed) return
           playing = Boolean(next)
           lastTs = 0
           acc = 0
@@ -1464,16 +1474,21 @@ window.__ModuleLoader__.load({
       return data.config
     }
 
-    /** 去抖。 */
+    /** 去抖；返回值带 `cancel()`，便于卸载时取消排队中的调用。 */
     function debounce(fn, wait) {
       let timer = null
-      return (...args) => {
+      const debounced = (...args) => {
         if (timer) clearTimeout(timer)
         timer = setTimeout(() => {
           timer = null
           fn(...args)
         }, wait)
       }
+      debounced.cancel = () => {
+        if (timer) clearTimeout(timer)
+        timer = null
+      }
+      return debounced
     }
 
     /**
@@ -1502,6 +1517,10 @@ window.__ModuleLoader__.load({
 
     /** 当前设置页的保存结果提示回调；卸载后置空，避免向已卸载实例写状态。 */
     let onConfigSaved = () => {}
+    /** 该回调属于哪个背景挂载实例；旧实例 cleanup 不能清掉新实例的回调。 */
+    let onConfigSavedOwner = null
+    /** 设置页挂载计数；设置页还在时，后台 cleanup 不应清掉它仍可用的回调。 */
+    let settingsMounts = 0
 
     /** 全局配置保存器：跨设置页挂载共享，保证任意时刻只有一个 PUT 在途。 */
     const saveConfigSerial = createSerialSaver(
@@ -1672,8 +1691,16 @@ window.__ModuleLoader__.load({
       // 保存结果提示；全局保存器可能跨挂载继续跑，只由当前实例接收结果。
       React.useEffect(() => {
         const onSaved = (err) => { setSaveNote(err ? `保存失败：${err.message}（画面不回滚）` : '已保存') }
+        settingsMounts += 1
         onConfigSaved = onSaved
-        return () => { if (onConfigSaved === onSaved) onConfigSaved = () => {} }
+        onConfigSavedOwner = runtime.owner
+        return () => {
+          settingsMounts = Math.max(0, settingsMounts - 1)
+          if (onConfigSaved === onSaved) {
+            onConfigSaved = () => {}
+            onConfigSavedOwner = null
+          }
+        }
       }, [])
 
       // 网格信息回调
@@ -1910,11 +1937,22 @@ window.__ModuleLoader__.load({
         )
       )
 
-      /** 图片 tab 占位。 */
+      /** 图片 tab 占位（保留，SHOW_TABS 恢复后可见）。 */
       const imageTab = h('div', { className: 'pw-placeholder' },
         h('div', { className: 'pw-title', style: { fontSize: 13 } }, '图片'),
         h('div', { className: 'pw-hint' }, '预留：把任意图片抽样为同一套单元格亮度场')
       )
+
+      /** 算法 tab 内容。 */
+      const algorithmTab = h('div', { className: 'pw-section' },
+        algorithmSelect,
+        playControls,
+        seedControl,
+        schemaControls
+      )
+
+      /** 按当前 tab 选内容；SHOW_TABS 关闭时直接显示算法内容，但分支保留。 */
+      const tabBody = tab === 'algorithm' ? algorithmTab : imageTab
 
       return h('div', { className: 'pw-section' },
         h('div', { className: 'pw-title' }, '像素背景'),
@@ -1924,19 +1962,14 @@ window.__ModuleLoader__.load({
         // 插件通用配置：网格、外观、色值
         generalControls,
         h('div', { className: 'pw-divid' }),
-        // tab：算法 / 图片
-        h('div', { className: 'pw-tabs' },
-          h('div', { className: `pw-tab${tab === 'algorithm' ? ' pw-tab-active' : ''}`, onClick: () => setTab('algorithm') }, '算法'),
-          h('div', { className: `pw-tab${tab === 'image' ? ' pw-tab-active' : ''}`, onClick: () => setTab('image') }, '图片')
-        ),
-        tab === 'algorithm'
-          ? h('div', { className: 'pw-section' },
-            algorithmSelect,
-            playControls,
-            seedControl,
-            schemaControls
+        // tab：算法 / 图片（当前默认整条隐藏，见 SHOW_TABS）
+        SHOW_TABS
+          ? h('div', { className: 'pw-tabs' },
+            h('div', { className: `pw-tab${tab === 'algorithm' ? ' pw-tab-active' : ''}`, onClick: () => setTab('algorithm') }, '算法'),
+            h('div', { className: `pw-tab${tab === 'image' ? ' pw-tab-active' : ''}`, onClick: () => setTab('image') }, '图片')
           )
-          : imageTab,
+          : null,
+        SHOW_TABS ? tabBody : algorithmTab,
         h('span', { className: `pw-note${saveNote.startsWith('保存失败') ? ' pw-note-err' : ''}` }, saveNote)
       )
     }
@@ -1972,16 +2005,76 @@ window.__ModuleLoader__.load({
      * ──────────────────────────────────────────────────────────────────────── */
 
     /** 客户端运行时状态（供测试探视，不参与生产逻辑）。 */
+    /** 当前样式节点的挂载实例；旧 cleanup 不能移除新实例复用的样式。 */
+    let styleOwner = null
+
     const runtime = {
       renderer: null,
+      observer: null,
+      // 当前挂载实例的所有权标记：旧实例的迟到 cleanup 不能清掉新实例的状态。
+      owner: null,
       regions: { header: false, left: false, right: false, input: false }
+    }
+
+    /** 只读快照：测试用，外部拿到副本，改它不会污染运行时。 */
+    function runtimeState() {
+      return {
+        renderer: runtime.renderer,
+        observer: runtime.observer,
+        owner: runtime.owner,
+        regions: { ...runtime.regions },
+        rendererConfig
+      }
+    }
+
+    /** 测试用 setter：把运行时置为指定状态，避免为验证复位去起整套 DOM。 */
+    function setRuntimeStateForTest(state) {
+      if (!state || typeof state !== 'object') return
+      if ('renderer' in state) runtime.renderer = state.renderer
+      if ('observer' in state) runtime.observer = state.observer
+      if ('owner' in state) runtime.owner = state.owner
+      if ('regions' in state) runtime.regions = { ...runtime.regions, ...state.regions }
+      if ('rendererConfig' in state) rendererConfig = state.rendererConfig
+    }
+
+    /**
+     * 复位渲染器相关的模块级状态：插件卸载后不能把旧 renderer / 观察器 /
+     * live 配置 / 区域识别结果留给下一次挂载。
+     *
+     * 传入 `owner` 时只允许该实例复位：重挂载/旧 cleanup 乱序时，旧实例
+     * 不能清掉新实例刚写入的状态。不传 `owner` 的测试/兜底路径保持无条件复位。
+     * 幂等，可重复调用。
+     * @param {object} [owner] 当前挂载实例的所有权标记。
+     * @returns {boolean} 是否执行了复位。
+     */
+    function resetRendererState(owner) {
+      if (owner && runtime.owner !== owner) return false
+      rendererConfig = null
+      runtime.renderer = null
+      runtime.observer = null
+      runtime.owner = null
+      runtime.regions = { header: false, left: false, right: false, input: false }
+      return true
     }
 
     /**
      * 启动画布与渲染器，维护配置事件与可见性。
+     * @param {object} ctx 客户端上下文。
+     * @param {object} [owner] 本次挂载的所有权标记；cleanup 只复位自己的状态。
      */
-    function startRenderer(ctx) {
+    function startRenderer(ctx, owner) {
       if (typeof document === 'undefined') return
+
+      const mountOwner = owner || {}
+      const previousRenderer = runtime.renderer
+      const previousOwner = runtime.owner
+      // 先占位：即使后面启动失败，本实例的 cleanup 也有资格复位自己。
+      runtime.owner = mountOwner
+      // 重叠挂载（HMR / 快速禁用再启用）时旧实例可能还没 cleanup：先停掉旧循环，
+      // 避免两个动画同时画同一块画布；旧 cleanup 仍是幂等的。
+      if (previousRenderer && previousOwner !== mountOwner) {
+        try { previousRenderer.destroy() } catch { /* 忽略 */ }
+      }
 
       // 注入画布
       let canvas = document.getElementById(CANVAS_ID)
@@ -2011,7 +2104,7 @@ window.__ModuleLoader__.load({
 
       const renderer = createRenderer(canvas, initialConfig, onGrid)
       runtime.renderer = renderer
-      trackConfig(renderer)
+      trackConfig(renderer, mountOwner)
       const teardown = []
 
       // 影响范围：测量开销大，缓存矩形，只在启动 / resize / DOM 变化时刷新。
@@ -2077,6 +2170,7 @@ window.__ModuleLoader__.load({
       // 区域测量：resize/DOM 变化时防抖重测；防抖保证最后一次变化一定被测量，
       // 不会因为「节流窗口内被丢弃」而永远停在启动时的旧结果。
       const scheduleMeasure = debounce(refreshRegions, 300)
+      teardown.push(() => scheduleMeasure.cancel())
       if (typeof window !== 'undefined') {
         window.addEventListener('resize', scheduleMeasure)
         teardown.push(() => window.removeEventListener('resize', scheduleMeasure))
@@ -2100,58 +2194,171 @@ window.__ModuleLoader__.load({
         for (const fn of teardown) {
           try { fn() } catch { /* 单个清理失败继续 */ }
         }
+        const ownsState = runtime.owner === mountOwner
         try { renderer.destroy() } catch { /* 忽略 */ }
-        try { if (canvas.parentNode) canvas.parentNode.removeChild(canvas) } catch { /* 忽略 */ }
-        runtime.renderer = null
+        // 新实例已经接管同一个 canvas 时，旧 cleanup 不能把画布从 DOM 里摘掉。
+        if (ownsState) {
+          try { if (canvas.parentNode) canvas.parentNode.removeChild(canvas) } catch { /* 忽略 */ }
+        }
+        // 只复位本次挂载自己的状态：旧 cleanup 晚于新挂载执行时，不能清掉新实例。
+        resetRendererState(mountOwner)
+        clearConfigSaved(mountOwner)
       }
+    }
+
+    /** 只清理属于该挂载实例的保存回调，避免旧实例覆盖新设置页。 */
+    function clearConfigSaved(owner) {
+      // 设置页还挂着时，后台挂载先卸载不影响它继续显示保存结果；设置页自己的
+      // cleanup 会清回调。这样旧后台实例的迟到 cleanup 不会把仍有效的回调清掉。
+      if (settingsMounts > 0) return
+      if (onConfigSavedOwner !== owner) return
+      onConfigSaved = () => {}
+      onConfigSavedOwner = null
     }
 
     /** 当前生效配置（供可见性切换使用）。 */
     let rendererConfig = null
 
-    /** 记录 renderer 的最新配置。 */
-    function trackConfig(renderer) {
+    /** 记录 renderer 的最新配置；已销毁或已被新实例取代的 renderer 不再回写。 */
+    function trackConfig(renderer, owner) {
       const orig = renderer.updateConfig
       renderer.updateConfig = (c) => {
+        if (renderer.isDestroyed && renderer.isDestroyed()) return
+        // 旧实例迟到的 GET / resize 回调不能覆盖新实例的 live 配置。
+        if (owner && runtime.renderer !== renderer) return
         rendererConfig = c
         return orig(c)
       }
     }
 
     /**
-     * 监听 resize / dpr 变化，触发整组重算（自动）或保留手动参数重算（手动）。
+     * 监听 resize / dpr 变化，触发重算。
+     *
+     * DPR 监听必须**精确到当前值**：只监听 `(resolution: 1dppx)` 只能识别
+     * 1x ↔ 非 1x，Windows 125% → 150% 这类 1.25 → 1.5 的变化不会触发。
+     * 所以每次拿到新 dpr 都重新 matchMedia 绑定；window resize 作为兜底
+     * （部分浏览器切换缩放/跨屏时不派发 media change）。
+     * @param {object} renderer 渲染器（提供 updateConfig）。
+     * @param {object} seedConfig 启动初始配置；GET 未返回时 resize 用它重算。
+     * @returns {(() => void)|null} 清理函数；重复调用安全。
      */
     function setupResizeHandlers(renderer, seedConfig) {
       if (typeof window === 'undefined' || typeof document === 'undefined') return null
-      let ro = null
-      let mq = null
-      let handler = null
-      try {
-        ro = new ResizeObserver(debounce(() => {
-          if (rendererConfig) renderer.updateConfig(rendererConfig)
-        }, 300))
-        ro.observe(document.documentElement)
 
-        // matchMedia 监听跨屏 DPR
-        if (typeof window.matchMedia === 'function') {
-          mq = window.matchMedia('(resolution: 1dppx)')
-          handler = () => {
-            if (rendererConfig) renderer.updateConfig(rendererConfig)
+      const currentDpr = () => {
+        const dpr = Number(window.devicePixelRatio)
+        return Number.isFinite(dpr) && dpr > 0 ? dpr : 1
+      }
+
+      let lastDpr = currentDpr()
+      let disposed = false
+
+      /** 用 live 配置优先、启动初始配置兜底，触发一次整组重算。 */
+      const refresh = () => {
+        if (disposed) return
+        const config = rendererConfig || seedConfig
+        if (!config) return
+        try {
+          renderer.updateConfig(config)
+        } catch {
+          // 单次重算失败：保留上一帧
+        }
+      }
+
+      let ro = null
+      let roRefresh = null
+      let mq = null
+      let onMedia = null
+      let onWindowResize = null
+
+      /** 移除当前 matchMedia 监听。 */
+      const unbindDpr = () => {
+        if (!mq || !onMedia) return
+        try {
+          if (mq.removeEventListener) mq.removeEventListener('change', onMedia)
+          else if (mq.removeListener) mq.removeListener(onMedia)
+        } catch {
+          // 忽略
+        }
+        mq = null
+        onMedia = null
+      }
+
+      /** 按当前 dpr 精确重绑；只在 change 后 dpr 确实变化时重绑。 */
+      const bindDpr = () => {
+        unbindDpr()
+        if (disposed || typeof window.matchMedia !== 'function') return
+        const dpr = currentDpr()
+        try {
+          const nextMq = window.matchMedia(`(resolution: ${dpr}dppx)`)
+          const handler = () => {
+            if (disposed) return
+            if (currentDpr() !== lastDpr) {
+              bindDpr()
+              refresh()
+            }
           }
-          if (mq.addEventListener) mq.addEventListener('change', handler)
-          else if (mq.addListener) mq.addListener(handler)
+          if (nextMq.addEventListener) nextMq.addEventListener('change', handler)
+          else if (nextMq.addListener) nextMq.addListener(handler)
+          mq = nextMq
+          onMedia = handler
+          lastDpr = dpr
+        } catch {
+          // matchMedia 不可用：忽略，靠 window resize 兜底
+          mq = null
+          onMedia = null
+        }
+      }
+
+      // ResizeObserver 单独 try：它不存在时不能连带跳过 DPR 监听。
+      try {
+        if (typeof ResizeObserver === 'function') {
+          roRefresh = debounce(refresh, 300)
+          ro = new ResizeObserver(roRefresh)
+          ro.observe(document.documentElement)
         }
       } catch {
-        // 观察失败：不阻塞背景
+        ro = null
+        roRefresh = null
       }
+
+      bindDpr()
+
+      // 兜底：浏览器切换缩放/跨屏时可能只派发 resize，不派发 media change。
+      onWindowResize = () => {
+        if (disposed) return
+        if (currentDpr() === lastDpr) return
+        bindDpr()
+        refresh()
+      }
+      try {
+        window.addEventListener('resize', onWindowResize)
+      } catch {
+        // 忽略
+      }
+
       return () => {
-        try { if (ro) ro.disconnect() } catch { /* 忽略 */ }
+        disposed = true
+        unbindDpr()
         try {
-          if (mq && handler) {
-            if (mq.removeEventListener) mq.removeEventListener('change', handler)
-            else if (mq.removeListener) mq.removeListener(handler)
-          }
-        } catch { /* 忽略 */ }
+          if (onWindowResize) window.removeEventListener('resize', onWindowResize)
+        } catch {
+          // 忽略
+        }
+        onWindowResize = null
+        // 取消排队中的 ResizeObserver 重算，避免卸载后回写 rendererConfig。
+        try {
+          if (roRefresh) roRefresh.cancel()
+        } catch {
+          // 忽略
+        }
+        roRefresh = null
+        try {
+          if (ro) ro.disconnect()
+        } catch {
+          // 忽略
+        }
+        ro = null
       }
     }
 
@@ -2165,14 +2372,25 @@ window.__ModuleLoader__.load({
         // 画布、样式、监听器一起撤销，不留下「关了还在生效」的孤儿层。
         const startBackground = () => {
           if (typeof document === 'undefined') return () => {}
+          // 每次挂载一个独立 owner：旧 cleanup 只能清理旧实例。
+          const owner = {}
+          styleOwner = owner
           ensureStyle(STYLE_ID).textContent = BASE_CSS + UI_CSS
-          const disposeRenderer = startRenderer(ctx)
+          const disposeRenderer = startRenderer(ctx, owner)
           return () => {
+            // 先判断样式归属：disposeRenderer 可能复位 runtime.owner。
+            const ownsStyle = styleOwner === owner
             try { if (disposeRenderer) disposeRenderer() } catch { /* 忽略 */ }
-            try {
-              const style = document.getElementById(STYLE_ID)
-              if (style && style.parentNode) style.parentNode.removeChild(style)
-            } catch { /* 忽略 */ }
+            if (ownsStyle) {
+              try {
+                const style = document.getElementById(STYLE_ID)
+                if (style && style.parentNode) style.parentNode.removeChild(style)
+              } catch { /* 忽略 */ }
+              if (styleOwner === owner) styleOwner = null
+            }
+            // 即使 startRenderer 失败，也只清理本实例；新实例状态不能动。
+            resetRendererState(owner)
+            clearConfigSaved(owner)
           }
         }
         if (typeof ctx.effect === 'function') ctx.effect(startBackground, `${PLUGIN_ID}: background layer`)
@@ -2208,6 +2426,12 @@ window.__ModuleLoader__.load({
         algorithmOf,
         algorithmIds,
         measureRegions,
+        debounce,
+        trackConfig,
+        setupResizeHandlers,
+        resetRendererState,
+        runtimeState,
+        setRuntimeStateForTest,
         evenPalette,
         algorithmSignature,
         createBoids,

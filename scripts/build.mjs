@@ -23,6 +23,10 @@ import { fileURLToPath } from 'node:url'
 const root = dirname(dirname(fileURLToPath(import.meta.url)))
 const pkg = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'))
 
+/** `--assets`：只刷新入库的生成物（client/bundle.js、src/algorithm-schemas.js），
+ * 不清空/不写 E: 输出目录，也不重新合成宿主 lib。prepack 与 CI 用。 */
+const assetsOnly = process.argv.includes('--assets')
+
 const outDir = resolve(
   process.env.PIXEL_WALLPAPER_OUT ||
     (process.platform === 'win32'
@@ -40,6 +44,7 @@ function indent(source) {
 }
 
 const banner = `/*! ${pkg.name} v${pkg.version} | MIT | 构建产物，请勿手改 */`
+const size = (text) => `${(Buffer.byteLength(text) / 1024).toFixed(1)}KB`
 
 /* ── 客户端：宿主用 __ModuleLoader__ 注册，factory 只拿到 react ─────────── */
 
@@ -92,6 +97,17 @@ module.exports = ${JSON.stringify(schemas, null, 2)}
 
 `
 await writeFile(join(root, 'src/algorithm-schemas.js'), generatedSchemas, 'utf8')
+
+// 生成物先过一遍语法校验：包装写坏了要立刻失败，而不是等宿主加载时才报错。
+new Script(clientBundle, { filename: join(root, 'client/bundle.js') })
+
+if (assetsOnly) {
+  await writeFile(join(root, 'client/bundle.js'), clientBundle, 'utf8')
+  console.log('[pixel-wallpaper] 资源已更新')
+  console.log(`  client/bundle.js         ${size(clientBundle)}`)
+  console.log(`  src/algorithm-schemas.js ${size(generatedSchemas)}`)
+  process.exit(0)
+}
 
 /* ── 宿主：把 src/ 下的本地模块合成一个 CJS 文件 ─────────────────────── */
 
@@ -147,8 +163,7 @@ function __require(id) {
 module.exports = __require('./index')
 `
 
-// 包装代码写坏了要立刻失败，而不是等宿主加载时才报错。
-new Script(clientBundle, { filename: join(root, 'client/bundle.js') })
+// 宿主合成产物同样先语法校验。
 new Script(hostBundle, { filename: join(outDir, 'lib/index.js') })
 
 const shippedPkg = {
@@ -176,7 +191,6 @@ for (const file of ['cordis.patch.yml', 'README.md', 'LICENSE']) {
   await writeFile(join(outDir, file), await readFile(join(root, file)))
 }
 
-const size = (text) => `${(Buffer.byteLength(text) / 1024).toFixed(1)}KB`
 console.log(`[pixel-wallpaper] 构建完成 -> ${outDir}`)
 console.log(`  lib/index.js      ${size(hostBundle)}`)
 console.log(`  client/bundle.js  ${size(clientBundle)}`)

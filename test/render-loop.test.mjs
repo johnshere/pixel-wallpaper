@@ -177,3 +177,20 @@ test('destroy 清理帧与定时器', () => {
   assert.equal(pendingFrames.size, 0, 'destroy 后不应残留帧')
   assert.equal(intervalCleared, true, 'destroy 应清掉看门狗')
 })
+
+test('destroy 后 isDestroyed=true，直接 updateConfig 不再绘制/排帧', () => {
+  const { canvas, stats } = makeCanvas()
+  const renderer = createRenderer(canvas, CONFIG, () => {})
+  assert.equal(renderer.isDestroyed(), false, '初始未销毁')
+  renderer.destroy()
+  assert.equal(renderer.isDestroyed(), true, 'destroy 后应报告已销毁')
+
+  const before = stats.fills
+  assert.doesNotThrow(() => renderer.updateConfig({ ...CONFIG, grid: { cellWidth: 7, gap: 1 } }))
+  assert.equal(stats.fills, before, 'destroy 后 updateConfig 不应继续绘制')
+  assert.equal(pendingFrames.size, 0, 'destroy 后 updateConfig 不应重新排帧')
+
+  assert.doesNotThrow(() => renderer.playPause(true))
+  assert.equal(stats.fills, before, 'destroy 后 playPause 不应继续绘制')
+  assert.equal(pendingFrames.size, 0, 'destroy 后 playPause 不应重新排帧')
+})
