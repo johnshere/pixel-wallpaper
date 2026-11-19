@@ -24,7 +24,7 @@ test('package.json 兼容矩阵与入口', () => {
 })
 
 test('发布元数据', () => {
-  assert.equal(pkg.version, '0.1.0-alpha.1')
+  assert.equal(pkg.version, '0.1.0-alpha.2')
   assert.equal(pkg.author, 'johnshere')
   assert.equal(pkg.repository.url, 'https://github.com/johnshere/pixel-wallpaper.git')
   assert.equal(pkg.homepage, 'https://github.com/johnshere/pixel-wallpaper#readme')

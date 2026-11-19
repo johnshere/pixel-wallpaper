@@ -14,7 +14,7 @@ module.exports = {
       "min": 60,
       "max": 200,
       "step": 10,
-      "default": 80
+      "default": 100
     },
     {
       "key": "separation",
@@ -23,7 +23,7 @@ module.exports = {
       "min": 0,
       "max": 4,
       "step": 0.1,
-      "default": 1.6
+      "default": 1.2
     },
     {
       "key": "alignment",
@@ -32,7 +32,7 @@ module.exports = {
       "min": 0,
       "max": 2,
       "step": 0.05,
-      "default": 0.9
+      "default": 0.7
     },
     {
       "key": "cohesion",
@@ -41,7 +41,7 @@ module.exports = {
       "min": 0,
       "max": 3,
       "step": 0.1,
-      "default": 0.7
+      "default": 1
     },
     {
       "key": "speed",
@@ -50,7 +50,7 @@ module.exports = {
       "min": 0.4,
       "max": 2.4,
       "step": 0.1,
-      "default": 1.2
+      "default": 0.8
     },
     {
       "key": "trail",

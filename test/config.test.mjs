@@ -26,7 +26,14 @@ test('默认配置与 DESIGN.md §8 一致（version 4，网格 5 / 0.8）', () 
   assert.equal(c.render.transparency, 90)
   assert.equal(c.coverage.input, false)
   assert.equal(c.algorithm.id, 'boids')
-  assert.equal(c.algorithm.params.agents, 80)
+  assert.deepEqual(c.algorithm.params, {
+    agents: 100,
+    separation: 1.2,
+    alignment: 0.7,
+    cohesion: 1,
+    speed: 0.8,
+    trail: 0.98
+  })
 })
 
 test('sanitize：非法值 clamp、未知键丢弃、颜色归一化', () => {

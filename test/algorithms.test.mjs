@@ -67,18 +67,19 @@ test('噪声场：默认映射为主体暗底、亮部少', () => {
   assert.ok(brightRatio < 0.15, `亮格占比 ${brightRatio.toFixed(3)} 应小于 0.15`)
 })
 
-test('鸟群：默认 80 只、硬上限 200，三个规则权重都可由二级参数覆盖', () => {
+test('鸟群：默认 100 只、硬上限 200，规则权重与速度都可由二级参数覆盖', () => {
   const def = algorithmOf('boids')
   const byKey = new Map(def.schema.map((f) => [f.key, f]))
-  assert.equal(byKey.get('agents').default, 80)
+  assert.equal(byKey.get('agents').default, 100)
   assert.equal(byKey.get('agents').min, 60)
   assert.equal(byKey.get('agents').max, 200)
-  for (const key of ['separation', 'alignment', 'cohesion']) {
+  for (const key of ['separation', 'alignment', 'cohesion', 'speed']) {
     assert.ok(byKey.has(key), `schema 应包含 ${key}`)
   }
-  assert.equal(byKey.get('separation').default, 1.6)
-  assert.equal(byKey.get('alignment').default, 0.9)
-  assert.equal(byKey.get('cohesion').default, 0.7)
+  assert.equal(byKey.get('separation').default, 1.2)
+  assert.equal(byKey.get('alignment').default, 0.7)
+  assert.equal(byKey.get('cohesion').default, 1)
+  assert.equal(byKey.get('speed').default, 0.8)
 })
 
 test('鸟群：agents=999 实际只创建 200 只，且每只鸟速度不同', () => {

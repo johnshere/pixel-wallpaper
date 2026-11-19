@@ -1,6 +1,6 @@
 # pixel-wallpaper · 设计文档
 
-- 版本：0.1.0-alpha.1
+- 版本：0.1.0-alpha.2
 - 日期：2026-11-19
 - 目标宿主：DSH（DeepSeek Harness）Web，`dsh >= 0.2.2-rc.3`（强制）
 - 仓库：`johnshere/pixel-wallpaper`
@@ -45,7 +45,7 @@ package.json 关键字段：
 ```json
 {
   "name": "dsh-pixel-wallpaper",
-  "version": "0.1.0-alpha.1",
+  "version": "0.1.0-alpha.2",
   "main": "src/index.js",
   "type": "commonjs",
   "exports": {
@@ -205,7 +205,7 @@ create({ cols, rows, seed, params }) -> {
 
 | id | 名称 | 参数（默认） | 实现要点 |
 |---|---|---|---|
-| boids | 鸟群 | `agents` 60–200 (80)、`separation` 0–4 (1.6)、`alignment` 0–2 (0.9)、`cohesion` 0–3 (0.7)、`speed` 0.4–2.4 (1.2)、`trail` 0.90–0.995 (0.98) | 分离/对齐/聚合三权重均可调；环形边界；空间哈希邻域半径 12 格；每鸟速度在基准的 0.6–1.4 倍间随机（基准 = speed × 15 格/秒，可互相追赶/逃离）；每步 3×3 核打点（中心 .55、四邻 .18、对角 .06）；按 trail 衰减后归一化 |
+| boids | 鸟群 | `agents` 60–200 (100)、`separation` 0–4 (1.2)、`alignment` 0–2 (0.7)、`cohesion` 0–3 (1)、`speed` 0.4–2.4 (0.8)、`trail` 0.90–0.995 (0.98) | 分离/对齐/聚合三权重均可调；环形边界；空间哈希邻域半径 12 格；每鸟速度在基准的 0.6–1.4 倍间随机（基准 = speed × 15 格/秒，可互相追赶/逃离）；每步 3×3 核打点（中心 .55、四邻 .18、对角 .06）；按 trail 衰减后归一化 |
 | flow | 流场 | `particles` 300–3000 (500)、`scale` 0.6–6 (1.8)、`trail` 0.90–0.995 (0.975) | 粒子沿 fBm 噪声旋度场推进，环形边界；每步累积亮度并衰减；场随时间缓慢漂移；必须呈丝状，不能是均匀噪点 |
 | reaction | 反应扩散 | `feed` 0.010–0.080 (0.0367)、`kill` 0.040–0.070 (0.0649)、`steps` 1–12 (4) | Gray-Scott，`Du=.16 Dv=.08 dt=1`，9 点拉普拉斯，wrap；初始 10% 斑点；渲染取 B 通道对数归一化；模拟网格超 240 列时先降采样再最近邻放大 |
 | noise | 噪声场 | `scale` 0.6–8 (2.2)、`octaves` 2–6 (4)、`warp` 0–1 (0.35)、`drift` 0–1 (0.15) | 值噪声 fBm + 域扭曲；drift 让场随时间平移；默认高阈值三次曲线，主体暗底、亮部少 |
@@ -350,11 +350,11 @@ npm pack --dry-run --ignore-scripts  # 检查 npm tarball 文件集
 
 1. 根包即 npm 发布内容（`files` 白名单），不是 E: 自包含目录；
 2. `prepack` 先跑 `node scripts/build.mjs --assets`，生成物过期会被 CI 的 `git diff --exit-code` 拦住；
-3. `npm publish` 带 `publishConfig.tag=alpha`，并按 `publishConfig.registry` 固定发到 npmjs（本机 install registry 可仍是镜像）；需维护者已在 npmjs `npm login`；子代理不发布。当前 npm 账号不可用，Alpha 先以 GitHub tag `v0.1.0-alpha.1` 分发（`dsh plugin ... add github:johnshere/pixel-wallpaper#v0.1.0-alpha.1`），npm 包待账号恢复后补发。
+3. `npm publish` 带 `publishConfig.tag=alpha`，并按 `publishConfig.registry` 固定发到 npmjs（本机 install registry 可仍是镜像）；需维护者已在 npmjs `npm login`；子代理不发布。当前 npm 账号不可用，Alpha 先以 GitHub tag `v0.1.0-alpha.2` 分发（`dsh plugin ... add github:johnshere/pixel-wallpaper#v0.1.0-alpha.2`），npm 包待账号恢复后补发。
 
 安装（用户侧）：
 
-- GitHub tag（当前 Alpha）：`dsh plugin --profile web add github:johnshere/pixel-wallpaper#v0.1.0-alpha.1`，在 `dsh.profile.bundles` 加入包名，重启 DSH；
+- GitHub tag（当前 Alpha）：`dsh plugin --profile web add github:johnshere/pixel-wallpaper#v0.1.0-alpha.2`，在 `dsh.profile.bundles` 加入包名，重启 DSH；
 - npm alpha（补发后）：`dsh plugin --profile web add dsh-pixel-wallpaper@alpha` 后在 `dsh.profile.bundles` 加入包名，重启 DSH；
 - 本地 link 调试：web profile 的 dependencies 增加 `"dsh-pixel-wallpaper": "link:<Windows 盘符路径>"`，`bundles` 加入包名，profile 目录 `pnpm install`，刷新页面/重启 DSH。
 

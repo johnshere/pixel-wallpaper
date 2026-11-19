@@ -28,7 +28,7 @@ DSH Web 的像素格背景插件：在页面最底层铺一层由算法实时生
 npm 账号暂时不可用，当前 Alpha 直接从 GitHub tag 安装。`dsh plugin` 会把参数转发给 pnpm：
 
 ```bash
-dsh plugin --profile web add github:johnshere/pixel-wallpaper#v0.1.0-alpha.1
+dsh plugin --profile web add github:johnshere/pixel-wallpaper#v0.1.0-alpha.2
 ```
 
 pnpm 会拉取该 tag 的仓库并安装；首次安装需要本机有 git 和网络。安装后在 profile 的 `dsh.profile.bundles` 里确认有 `"dsh-pixel-wallpaper"`，再重启 DSH。
@@ -38,7 +38,7 @@ pnpm 会拉取该 tag 的仓库并安装；首次安装需要本机有 git 和�
 ```jsonc
 {
   "dependencies": {
-    "dsh-pixel-wallpaper": "github:johnshere/pixel-wallpaper#v0.1.0-alpha.1"
+    "dsh-pixel-wallpaper": "github:johnshere/pixel-wallpaper#v0.1.0-alpha.2"
   },
   "dsh": {
     "profile": {
@@ -52,7 +52,7 @@ pnpm 会拉取该 tag 的仓库并安装；首次安装需要本机有 git 和�
 
 ### 从 npm（Alpha，待发布）
 
-npm 账号恢复后会补发 `0.1.0-alpha.1`，dist-tag 为 `alpha`；发布后可改用：
+npm 账号恢复后会补发 `0.1.0-alpha.2`，dist-tag 为 `alpha`；发布后可改用：
 
 ```bash
 dsh plugin --profile web add dsh-pixel-wallpaper@alpha
@@ -85,7 +85,7 @@ dsh plugin --profile web add dsh-pixel-wallpaper@alpha
 
 ```bash
 # 当前 GitHub tag 分发
-dsh plugin --profile web add github:johnshere/pixel-wallpaper#v0.1.0-alpha.1
+dsh plugin --profile web add github:johnshere/pixel-wallpaper#v0.1.0-alpha.2
 
 # npm 补发后可用
 # dsh plugin --profile web add dsh-pixel-wallpaper@alpha

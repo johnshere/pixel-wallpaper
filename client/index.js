@@ -306,11 +306,11 @@ registerAlgorithm({
   label: '鸟群',
   desc: '分离/对齐/聚合的智能体，拖尾留下纹理。',
   schema: [
-    { key: 'agents', label: '智能体数量', type: 'range', min: 60, max: 200, step: 10, default: 80 },
-    { key: 'separation', label: '分离权重', type: 'range', min: 0, max: 4, step: 0.1, default: 1.6 },
-    { key: 'alignment', label: '对齐权重', type: 'range', min: 0, max: 2, step: 0.05, default: 0.9 },
-    { key: 'cohesion', label: '聚合权重', type: 'range', min: 0, max: 3, step: 0.1, default: 0.7 },
-    { key: 'speed', label: '速度', type: 'range', min: 0.4, max: 2.4, step: 0.1, default: 1.2 },
+    { key: 'agents', label: '智能体数量', type: 'range', min: 60, max: 200, step: 10, default: 100 },
+    { key: 'separation', label: '分离权重', type: 'range', min: 0, max: 4, step: 0.1, default: 1.2 },
+    { key: 'alignment', label: '对齐权重', type: 'range', min: 0, max: 2, step: 0.05, default: 0.7 },
+    { key: 'cohesion', label: '聚合权重', type: 'range', min: 0, max: 3, step: 0.1, default: 1 },
+    { key: 'speed', label: '速度', type: 'range', min: 0.4, max: 2.4, step: 0.1, default: 0.8 },
     { key: 'trail', label: '拖尾', type: 'range', min: 0.9, max: 0.995, step: 0.005, default: 0.98 }
   ],
   create: createBoids
@@ -322,7 +322,7 @@ const SPEED_SCALE = 15
 /** 鸟群算法：分离/对齐/聚合 + 环形边界 + 空间哈希。 */
 function createBoids({ cols, rows, seed, params }) {
   const rand = mulberry32(seed)
-  const p = Object.assign({ agents: 80, speed: 1.2, trail: 0.98, separation: 1.6, alignment: 0.9, cohesion: 0.7 }, params)
+  const p = Object.assign({ agents: 100, speed: 0.8, trail: 0.98, separation: 1.2, alignment: 0.7, cohesion: 1 }, params)
   const field = new Float32Array(cols * rows)
   // 硬上限 200：参数层已 clamp，这里再兜一层，避免旧配置或直接调用撑爆内存。
   const N = Math.min(200, Math.max(1, Math.round(p.agents)))

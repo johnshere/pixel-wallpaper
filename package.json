@@ -1,6 +1,6 @@
 {
   "name": "dsh-pixel-wallpaper",
-  "version": "0.1.0-alpha.1",
+  "version": "0.1.0-alpha.2",
   "description": "像素背景：在 DSH Web 整窗底层铺一层算法实时生成的灰白像素格背景。",
   "license": "MIT",
   "author": "johnshere",
