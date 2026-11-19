@@ -29,7 +29,7 @@ test('发布元数据', () => {
   assert.equal(pkg.repository.url, 'https://github.com/johnshere/pixel-wallpaper.git')
   assert.equal(pkg.homepage, 'https://github.com/johnshere/pixel-wallpaper#readme')
   assert.equal(pkg.bugs.url, 'https://github.com/johnshere/pixel-wallpaper/issues')
-  assert.deepEqual(pkg.publishConfig, { access: 'public', tag: 'alpha' })
+  assert.deepEqual(pkg.publishConfig, { access: 'public', tag: 'alpha', registry: 'https://registry.npmjs.org/' })
   for (const keyword of ['dsh', 'dsh-plugin', 'wallpaper', 'canvas', 'pixel']) {
     assert.ok(pkg.keywords.includes(keyword), `缺少 keyword: ${keyword}`)
   }

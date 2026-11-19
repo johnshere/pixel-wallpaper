@@ -28,7 +28,8 @@
   ],
   "publishConfig": {
     "access": "public",
-    "tag": "alpha"
+    "tag": "alpha",
+    "registry": "https://registry.npmjs.org/"
   },
   "engines": {
     "node": ">=22.5",

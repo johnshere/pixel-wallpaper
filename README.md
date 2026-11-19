@@ -122,7 +122,7 @@ npm test                      # 网格/调色板/算法/渲染/DPR/生命周期/
 
 ```bash
 npm test && npm run check
-npm publish          # publishConfig: access=public, tag=alpha
+npm publish          # publishConfig: registry=npmjs, access=public, tag=alpha
 ```
 
 `prepack` 会先执行 `node scripts/build.mjs --assets` 刷新生成物；发布的是仓库根包（`files` 白名单），不是 E: 自包含目录。发布前需已 `npm login`。

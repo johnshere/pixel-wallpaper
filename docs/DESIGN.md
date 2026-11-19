@@ -68,7 +68,7 @@ package.json 关键字段：
     "LICENSE",
     "CHANGELOG.md"
   ],
-  "publishConfig": { "access": "public", "tag": "alpha" },
+  "publishConfig": { "access": "public", "tag": "alpha", "registry": "https://registry.npmjs.org/" },
   "scripts": {
     "build": "node scripts/build.mjs",
     "prepack": "node scripts/build.mjs --assets",
@@ -350,7 +350,7 @@ npm pack --dry-run --ignore-scripts  # 检查 npm tarball 文件集
 
 1. 根包即 npm 发布内容（`files` 白名单），不是 E: 自包含目录；
 2. `prepack` 先跑 `node scripts/build.mjs --assets`，生成物过期会被 CI 的 `git diff --exit-code` 拦住；
-3. `npm publish` 带 `publishConfig.tag=alpha`，需维护者已 `npm login`；子代理不发布。
+3. `npm publish` 带 `publishConfig.tag=alpha`，并按 `publishConfig.registry` 固定发到 npmjs（本机 install registry 可仍是镜像）；需维护者已在 npmjs `npm login`；子代理不发布。
 
 安装（用户侧）：
 
