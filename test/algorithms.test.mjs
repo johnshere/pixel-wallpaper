@@ -74,6 +74,48 @@ test('鸟群：agents=999 实际只创建 200 只，且每只鸟速度不同', (
   }
 })
 
+test('流场：降采样后粒子覆盖 2×2 格，不是单格小点', () => {
+  const def = algorithmOf('flow')
+  const particles = def.schema.find((f) => f.key === 'particles').default
+  const cols = 331
+  const rows = 186
+  const fresh = def.create({ cols, rows, seed: 7, params: {} })
+  assert.ok(fresh.field.some((v) => v > 0), '初始场应先有点，不能第一帧全黑')
+  const inst = def.create({ cols, rows, seed: 7, params: {} })
+  for (let i = 0; i < 90; i++) inst.step(1 / 30)
+
+  let nonzero = 0
+  let sum = 0
+  for (let i = 0; i < inst.field.length; i++) {
+    const v = inst.field[i]
+    assert.ok(Number.isFinite(v), `field[${i}] 不应是 ${v}`)
+    if (v !== 0) nonzero++
+    sum += v
+  }
+  assert.ok(nonzero > particles * 2, `非零格数 ${nonzero} 应明显大于粒子数 ${particles}`)
+  assert.ok(
+    sum / inst.field.length > 0.05,
+    `平均亮度 ${(sum / inst.field.length).toFixed(3)} 过低：拖尾不应被 max 归一化压暗`
+  )
+
+  // 最近邻放大：sim 一格对应渲染 2×2 块（右/下边界单列行除外）。
+  let mismatch = 0
+  let litBlocks = 0
+  for (let y = 0; y + 1 < rows; y += 2) {
+    for (let x = 0; x + 1 < cols; x += 2) {
+      const v = inst.field[y * cols + x]
+      if (v > 0) litBlocks++
+      if (
+        inst.field[y * cols + x + 1] !== v ||
+        inst.field[(y + 1) * cols + x] !== v ||
+        inst.field[(y + 1) * cols + x + 1] !== v
+      ) mismatch++
+    }
+  }
+  assert.equal(mismatch, 0, '2×2 块内亮度应完全相等')
+  assert.ok(litBlocks > particles, `亮块数 ${litBlocks} 应超过粒子数`)
+})
+
 test('算法实例签名：二级参数改动视为需要重启（重置）', () => {
   const { algorithmSignature } = bundle.__internals
   const base = { id: 'boids', seed: 1, params: { agents: 80, cohesion: 0.7 } }

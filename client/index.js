@@ -430,17 +430,25 @@ registerAlgorithm({
   create: createFlow
 })
 
-/** 流场算法：粒子沿旋度场推进，累积亮度并衰减。 */
+/** 流场粒子推进速度（格/秒）。归一化方向后按固定速度走，避免噪声梯度尖峰导致跳格。 */
+const FLOW_SPEED = 15
+
+/** 流场算法：粒子沿旋度场在降采样网格上推进，累积亮度并衰减。 */
 function createFlow({ cols, rows, seed, params }) {
   const rand = mulberry32(seed)
   const p = Object.assign({ particles: 1200, scale: 1.8, trail: 0.975 }, params)
+  // 超过 240 列先降采样：一个 sim 格放大成 down×down 渲染格，粒子视觉尺寸回到约 10px。
+  const down = cols > 240 ? 2 : 1
+  const W = Math.ceil(cols / down)
+  const H = Math.ceil(rows / down)
   const field = new Float32Array(cols * rows)
+  const simField = new Float32Array(W * H)
   const N = Math.round(p.particles)
   const px = new Float32Array(N)
   const py = new Float32Array(N)
   for (let i = 0; i < N; i++) {
-    px[i] = rand() * cols
-    py[i] = rand() * rows
+    px[i] = rand() * W
+    py[i] = rand() * H
   }
   // 旋度场：用 fbm 的 x/y 偏导近似（值噪声差分）
   const s = p.scale
@@ -452,31 +460,69 @@ function createFlow({ cols, rows, seed, params }) {
   function curl(x, y, t) {
     // 用两个相位噪声差近似旋度
     const e = 0.5
-    const ddx = (fbm2(s, s, 3, (x + e) / cols + ox, y / rows + oy, t) - fbm2(s, s, 3, (x - e) / cols + ox, y / rows + oy, t)) / (2 * e)
-    const ddy = (fbm2(s, s, 3, x / cols + ox, (y + e) / rows + oy, t) - fbm2(s, s, 3, x / cols + ox, (y - e) / rows + oy, t)) / (2 * e)
+    // 噪声坐标按 x/W、y/H 归一化，差分分母也要除以对应格数才是「每 sim 格」偏导。
+    const ddx = (fbm2(s, s, 3, (x + e) / W + ox, y / H + oy, t) - fbm2(s, s, 3, (x - e) / W + ox, y / H + oy, t)) / (2 * e / W)
+    const ddy = (fbm2(s, s, 3, x / W + ox, (y + e) / H + oy, t) - fbm2(s, s, 3, x / W + ox, (y - e) / H + oy, t)) / (2 * e / H)
     // 旋度分量：vx = ddy, vy = -ddx
     return [ddy * 3, -ddx * 3]
   }
 
+  /** 把 sim 网格最近邻放大到渲染网格。 */
+  function blit() {
+    for (let y = 0; y < rows; y++) {
+      const sy = Math.min(H - 1, Math.floor(y / down))
+      const out = y * cols
+      for (let x = 0; x < cols; x++) {
+        const sx = Math.min(W - 1, Math.floor(x / down))
+        field[out + x] = simField[sy * W + sx]
+      }
+    }
+  }
+
   function step(dt) {
-    for (let i = 0; i < field.length; i++) field[i] *= p.trail
+    for (let i = 0; i < simField.length; i++) simField[i] *= p.trail
     time += dt
     for (let i = 0; i < N; i++) {
       const [vx, vy] = curl(px[i], py[i], time)
-      let nx = px[i] + vx * dt * 4
-      let ny = py[i] + vy * dt * 4
-      nx = ((nx % cols) + cols) % cols
-      ny = ((ny % rows) + rows) % rows
-      px[i] = nx
-      py[i] = ny
-      const xi = Math.round(nx)
-      const yi = Math.round(ny)
-      if (xi >= 0 && yi >= 0 && xi < cols && yi < rows) field[yi * cols + xi] += 1
+      // 方向归一化后按固定速度推进，避免修正偏导单位后个别粒子速度尖峰跳格。
+      const mag = Math.hypot(vx, vy) || 1
+      // 固定速度保持「渲染格/秒」语义；sim 内换算成 FLOW_SPEED/down 格/秒。
+      const dist = (FLOW_SPEED / down) * dt
+      const tx = px[i] + vx / mag * dist
+      const ty = py[i] + vy / mag * dist
+      // 沿移动线段补点，快速移动时也能连成拖尾而不是离散点。
+      const seg = Math.max(1, Math.ceil(dist * 2))
+      const add = 1 / seg
+      for (let j = 1; j <= seg; j++) {
+        const k = j / seg
+        let sx = px[i] + (tx - px[i]) * k
+        let sy = py[i] + (ty - py[i]) * k
+        sx = ((sx % W) + W) % W
+        sy = ((sy % H) + H) % H
+        const xi = Math.round(sx)
+        const yi = Math.round(sy)
+        if (xi >= 0 && yi >= 0 && xi < W && yi < H) simField[yi * W + xi] += add
+      }
+      px[i] = ((tx % W) + W) % W
+      py[i] = ((ty % H) + H) % H
     }
-    let max = 0
-    for (let i = 0; i < field.length; i++) if (field[i] > max) max = field[i]
-    if (max > 0) for (let i = 0; i < field.length; i++) field[i] /= max
+    // 固定亮度、直接 clamp，不做 max 归一化：避免边界热点把整屏拖尾压暗。
+    for (let i = 0; i < simField.length; i++) {
+      const v = simField[i]
+      if (v > 1) simField[i] = 1
+      else if (v < 0) simField[i] = 0
+    }
+    blit()
   }
+
+  // 初始打点，避免第一帧全黑。
+  for (let i = 0; i < N; i++) {
+    const xi = Math.round(px[i])
+    const yi = Math.round(py[i])
+    if (xi >= 0 && yi >= 0 && xi < W && yi < H) simField[yi * W + xi] += 1
+  }
+  for (let i = 0; i < simField.length; i++) if (simField[i] > 1) simField[i] = 1
+  blit()
 
   return { field, step }
 }
