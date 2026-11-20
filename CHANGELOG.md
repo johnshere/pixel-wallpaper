@@ -7,7 +7,7 @@
 ### 变更
 
 - 鸟群默认参数改为当前调试值：`agents` 100、`separation` 1.2、`alignment` 0.7、`cohesion` 1、`speed` 0.8、`trail` 0.98。
-- Alpha 安装 tag 更新为 `v0.1.0-alpha.2`；npm 包仍待账号恢复后补发。
+- `0.1.0-alpha.2` 已发布到 npmjs，dist-tag 为 `alpha`；GitHub tag `v0.1.0-alpha.2` 保留作为备用安装方式。
 
 ## 0.1.0-alpha.1 (2026-11-19)
 

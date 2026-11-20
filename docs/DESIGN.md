@@ -350,12 +350,12 @@ npm pack --dry-run --ignore-scripts  # 检查 npm tarball 文件集
 
 1. 根包即 npm 发布内容（`files` 白名单），不是 E: 自包含目录；
 2. `prepack` 先跑 `node scripts/build.mjs --assets`，生成物过期会被 CI 的 `git diff --exit-code` 拦住；
-3. `npm publish` 带 `publishConfig.tag=alpha`，并按 `publishConfig.registry` 固定发到 npmjs（本机 install registry 可仍是镜像）；需维护者已在 npmjs `npm login`；子代理不发布。当前 npm 账号不可用，Alpha 先以 GitHub tag `v0.1.0-alpha.2` 分发（`dsh plugin ... add github:johnshere/pixel-wallpaper#v0.1.0-alpha.2`），npm 包待账号恢复后补发。
+3. `npm publish` 带 `publishConfig.tag=alpha`，并按 `publishConfig.registry` 固定发到 npmjs（本机 install registry 可仍是镜像）；需维护者已在 npmjs `npm login`；子代理不发布。`0.1.0-alpha.2` 已发布到 npmjs，dist-tags 为 `alpha` 和 `latest`；GitHub tag `v0.1.0-alpha.2` 保留作为备用安装方式。
 
 安装（用户侧）：
 
-- GitHub tag（当前 Alpha）：`dsh plugin --profile web add github:johnshere/pixel-wallpaper#v0.1.0-alpha.2`，在 `dsh.profile.bundles` 加入包名，重启 DSH；
-- npm alpha（补发后）：`dsh plugin --profile web add dsh-pixel-wallpaper@alpha` 后在 `dsh.profile.bundles` 加入包名，重启 DSH；
+- npm alpha（推荐）：`dsh plugin --profile web add dsh-pixel-wallpaper@alpha` 后在 `dsh.profile.bundles` 加入包名，重启 DSH；
+- GitHub tag（备用）：`dsh plugin --profile web add github:johnshere/pixel-wallpaper#v0.1.0-alpha.2`，在 `dsh.profile.bundles` 加入包名，重启 DSH；
 - 本地 link 调试：web profile 的 dependencies 增加 `"dsh-pixel-wallpaper": "link:<Windows 盘符路径>"`，`bundles` 加入包名，profile 目录 `pnpm install`，刷新页面/重启 DSH。
 
 自检（执行者必须跑）：

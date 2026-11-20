@@ -23,22 +23,22 @@ DSH Web 的像素格背景插件：在页面最底层铺一层由算法实时生
 
 ## 安装
 
-### 从 GitHub tag（Alpha，当前可用）
+### 从 npm（Alpha，推荐）
 
-npm 账号暂时不可用，当前 Alpha 直接从 GitHub tag 安装。`dsh plugin` 会把参数转发给 pnpm：
+包已发布到 npmjs，dist-tag 为 `alpha`：
 
 ```bash
-dsh plugin --profile web add github:johnshere/pixel-wallpaper#v0.1.0-alpha.2
+dsh plugin --profile web add dsh-pixel-wallpaper@alpha
 ```
 
-pnpm 会拉取该 tag 的仓库并安装；首次安装需要本机有 git 和网络。安装后在 profile 的 `dsh.profile.bundles` 里确认有 `"dsh-pixel-wallpaper"`，再重启 DSH。
+普通 Node 项目也可以直接 `npm install dsh-pixel-wallpaper@alpha`；DSH 用户仍需在 profile 的 `dsh.profile.bundles` 里确认有 `"dsh-pixel-wallpaper"`，然后重启 DSH。
 
 等价的 profile 手动方式：编辑 `$DSH_HOME/profiles/web/package.json`，
 
 ```jsonc
 {
   "dependencies": {
-    "dsh-pixel-wallpaper": "github:johnshere/pixel-wallpaper#v0.1.0-alpha.2"
+    "dsh-pixel-wallpaper": "^0.1.0-alpha.2"
   },
   "dsh": {
     "profile": {
@@ -50,15 +50,15 @@ pnpm 会拉取该 tag 的仓库并安装；首次安装需要本机有 git 和�
 
 再执行 `dsh plugin --profile web install`（或在该 profile 目录 `pnpm install`），然后重启 DSH。`dsh.profile.bundles` 缺了包名时，插件不会挂载。
 
-### 从 npm（Alpha，待发布）
+### 从 GitHub tag（备用）
 
-npm 账号恢复后会补发 `0.1.0-alpha.2`，dist-tag 为 `alpha`；发布后可改用：
+npm 不可用时，也可以直接从 GitHub tag 安装。`dsh plugin` 会把参数转发给 pnpm：
 
 ```bash
-dsh plugin --profile web add dsh-pixel-wallpaper@alpha
+dsh plugin --profile web add github:johnshere/pixel-wallpaper#v0.1.0-alpha.2
 ```
 
-普通 Node 项目也可以直接 `npm install dsh-pixel-wallpaper@alpha`；DSH 用户仍需把包名加进 profile 的 `bundles`。
+pnpm 会拉取该 tag 的仓库并安装；首次安装需要本机有 git 和网络。安装后同样确认 `dsh.profile.bundles`，再重启 DSH。
 
 ### 本地开发（link，仅调试）
 
@@ -84,12 +84,12 @@ dsh plugin --profile web add dsh-pixel-wallpaper@alpha
 ## 升级
 
 ```bash
-# 当前 GitHub tag 分发
-dsh plugin --profile web add github:johnshere/pixel-wallpaper#v0.1.0-alpha.2
+# npm（推荐）
+dsh plugin --profile web add dsh-pixel-wallpaper@alpha
+# 或 dsh plugin --profile web update dsh-pixel-wallpaper
 
-# npm 补发后可用
-# dsh plugin --profile web add dsh-pixel-wallpaper@alpha
-# dsh plugin --profile web update dsh-pixel-wallpaper
+# GitHub tag 备用
+dsh plugin --profile web add github:johnshere/pixel-wallpaper#v0.1.0-alpha.2
 ```
 
 重启 DSH。alpha 版本可能包含不兼容改动，升级前看一眼 [CHANGELOG.md](CHANGELOG.md)。
